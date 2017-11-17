@@ -38,6 +38,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ListAdapter;
 import android.widget.ListView;
+import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.Api;
@@ -75,6 +76,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -106,6 +108,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     static final int FLAG_BEARING = 1;
     static final int FLAG_LOCATION_BEARING = 2;
     GoogleApiClient googleApiClient;
+    boolean SetRefPosition = false;
     Location currentLocation;
     Location YNU = new Location("");
     Location refPosition;
@@ -151,16 +154,21 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             @Override
             public void onClick(View view) {
                 sharingMode = 0;
-                id = Integer.parseInt(String.valueOf(editTextId.getText()));
+                if (editTextId.getText().equals("") ){
+                    id = Integer.parseInt(String.valueOf(editTextId.getText()));
 
-                final Runnable runnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        new getReferencePosition().execute();
-                        handler.postDelayed(this,5000);
-                    }
-                };
-                handler.post(runnable);
+                    final Runnable runnable = new Runnable() {
+                        @Override
+                        public void run() {
+                            new getReferencePosition().execute();
+                            handler.postDelayed(this,5000);
+                        }
+                    };
+                    handler.post(runnable);
+                    SetRefPosition = true;
+                }else{
+                    Toast.makeText(MainActivity.this, "指定のidから目的地を指定します", Toast.LENGTH_SHORT).show();
+                }
             }
         });
 
@@ -253,13 +261,19 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         btnSetLocation.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                try {
-                    refPosition.setLongitude(Double.parseDouble(editTextLong.getText().toString()));
-                    refPosition.setLatitude(Double.parseDouble(editTextLat.getText().toString()));
-                    logListAdapter.add("onClick: Reference position was changed");
-                    logListAdapter.add("Position: " + String.valueOf(refPosition.getLongitude()) + ", " + String.valueOf(refPosition.getLatitude()));
-                } catch (NumberFormatException e){
-                    refPosition = null;
+                if ((editTextLong.getText().equals("")) | (editTextLat.getText().equals(""))){
+                    Toast.makeText(MainActivity.this, "経度(Longitude)と緯度(Latitude)を目的地に指定できます", Toast.LENGTH_SHORT).show();
+                }else{
+                    try {
+                        SetRefPosition = true;
+                        refPosition.setLongitude(Double.parseDouble(editTextLong.getText().toString()));
+                        refPosition.setLatitude(Double.parseDouble(editTextLat.getText().toString()));
+                        logListAdapter.add("onClick: Reference position was changed");
+                        logListAdapter.add("Position: " + String.valueOf(refPosition.getLongitude()) + ", " + String.valueOf(refPosition.getLatitude()));
+                    } catch (NumberFormatException e){
+                        Toast.makeText(MainActivity.this, "経度(Longitude)と緯度(Latitude)を目的地に指定できます", Toast.LENGTH_SHORT).show();
+                        SetRefPosition = false;
+                    }
                 }
             }
         });
@@ -311,14 +325,13 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                     currentLocation.setBearing(fBearing);
                 }
 
-                if (refPosition != null){
-                    bearing = currentLocation.bearingTo(refPosition) - fBearing;
+                if (SetRefPosition){
+                    bearing = currentLocation.bearingTo(refPosition) - fBearing > 0 ? currentLocation.bearingTo(refPosition) - fBearing : currentLocation.bearingTo(refPosition) - fBearing + 360 ;
                     logListAdapter.add("Bearing to Posi: " + String.valueOf(bearing));
                 } else {
-                    bearing = currentLocation.bearingTo(YNU) - fBearing;
+                    bearing = currentLocation.bearingTo(YNU) - fBearing > 0 ? currentLocation.bearingTo(YNU) - fBearing : currentLocation.bearingTo(YNU) - fBearing + 360 ;
                     logListAdapter.add("Bearing to YNU: " + String.valueOf(bearing));
                 }
-                if (bearing < 0){bearing += 360;};
 
                 int intSpeedRef = (int) refPosition.getSpeed();
                 if (intSpeedRef > 256){intSpeedRef = 256;};
