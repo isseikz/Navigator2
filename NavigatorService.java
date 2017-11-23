@@ -305,7 +305,7 @@ public class NavigatorService extends Service {
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         notificationManager.notify(10,notification);
 
-//        startForeground(1, notification);
+        startForeground(1, notification);
         return START_STICKY;
     }
 
