@@ -126,6 +126,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     Button btnGetShareId;
     int    sharingMode;
     boolean registered;
+    Button btnButton2;
+    boolean service = false;
 
     JSONObject jsonObject;
     int id=0;
@@ -147,6 +149,22 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         logArea = (ListView) findViewById(R.id.logArea);
         logListAdapter = new ArrayAdapter<String>(this,android.R.layout.simple_list_item_1);
         logArea.setAdapter(logListAdapter);
+
+        btnButton2 = findViewById(R.id.button2);
+        btnButton2.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Intent intent = new Intent(MainActivity.this,NavigatorService.class);
+                service = !service;
+                if (!service){
+                    startService(intent);
+                } else {
+                    stopService(intent);
+                }
+
+
+            }
+        });
 
         editTextId = (EditText) findViewById(R.id.idArea);
         btnGetLoc = (Button) findViewById(R.id.btnGetLoc);
@@ -177,7 +195,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
         bluetoothAdapter = bluetoothManager.getAdapter();
 
-        StartBleScan();
+//        StartBleScan();
 
         if (googleApiClient == null) {
             googleApiClient = new GoogleApiClient.Builder(this)
@@ -224,7 +242,6 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
         bleHandler = new Handler();
         bleHandler.postDelayed(this::stopLeScan, SCAN_PERIOD);
-
     }
 
     private void stopLeScan() {
@@ -468,7 +485,6 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED) {
                     Log.i(TAG, "CONNECTED");
                     gatt.discoverServices();
-                    connected = true;
                     return;
                 }
 
@@ -490,7 +506,6 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 if (newState == BluetoothProfile.STATE_CONNECTED){
                     Log.i(TAG,"STATE_CONNECTED");
                     gatt.discoverServices();
-                    connected = true;
 
                 } else if(newState == BluetoothProfile.STATE_DISCONNECTED){
                     Log.i(TAG,"STATE_DISCONNECTED");
@@ -507,6 +522,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 if (status == BluetoothGatt.GATT_SUCCESS){
                     Log.i(TAG, String.valueOf(gatt.getServices()));
                     bluetoothGatt = gatt;
+                    Log.i(TAG, String.valueOf(gatt.getServices()));
+                    connected = true;
                     return;
                 } else {
                     Log.e(TAG,"onServiceDiscovered");
