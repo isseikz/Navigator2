@@ -32,9 +32,12 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Array;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -94,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
             isBound = true;
             messenger = new Messenger(iBinder);
 
-            sendMessage();
+            sendMessage("yeah-key","yeah-value");
         }
 
         @Override
@@ -113,17 +116,41 @@ public class MainActivity extends AppCompatActivity {
             Log.i(TAG,receivedMessage);
             logListAdapter.add(receivedMessage);
             logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+
+            if (receivedMessage.matches("SharedId:.*")){
+                Pattern p = Pattern.compile("[0-9]");
+                Matcher m = p.matcher(receivedMessage);
+
+                int id = 0;
+                int cnt= 0;
+                int[] arrId = new int[10];
+                while (m.find()) {
+                    arrId[cnt] = Integer.parseInt(m.group());
+                    cnt++;
+                }
+                Log.i(TAG, String.valueOf(arrId));
+                for (int i=0;i<cnt;i++){
+                    id += arrId[i] * Math.pow(10,cnt-1-i);
+                }
+                Log.i(TAG, String.valueOf(id));
+
+                try{
+                    editTextId.setText(String.valueOf(id));
+                }catch (IllegalStateException e){
+
+                }
+            }
         }
     }
 
-    public void sendMessage(){
+    public void sendMessage(String key, String value){
         if (isBound){
             try {
                 Message message = Message.obtain(null, NavigatorService.MESSAGE,1,1);
                 message.replyTo = replyMessenger;
 
                 Bundle bundle = new Bundle();
-                bundle.putString("rec","Hi, you hear me");
+                bundle.putString(key, value);
                 message.setData(bundle);
 
                 messenger.send(message);
@@ -151,14 +178,14 @@ public class MainActivity extends AppCompatActivity {
         logListAdapter = new ArrayAdapter<String>(this,R.layout.log_area);
         logArea.setAdapter(logListAdapter);
         logListAdapter.add(TAG + ": onCreate");
-        serviceStatusSwitch = findViewById(R.id.ServiceStatusSwitch);
 
+
+        serviceStatusSwitch = findViewById(R.id.ServiceStatusSwitch);
         Intent intent = new Intent(MainActivity.this,NavigatorService.class);
         intent.putExtra("Flag",F_SWITCH_SERVICE);
         startService(intent);
         bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
         serviceStatusSwitch.setChecked(true);
-
         serviceStatusSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
@@ -197,6 +224,16 @@ public class MainActivity extends AppCompatActivity {
                 }else{
                     Toast.makeText(MainActivity.this, "指定のidから目的地を指定します", Toast.LENGTH_SHORT).show();
                 }
+            }
+        });
+
+        btnGetShareId =findViewById(R.id.btnGetShareId);
+        btnGetShareId.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Intent intent = new Intent(MainActivity.this,NavigatorService.class);
+                intent.putExtra("Flag",F_SET_SHARE_POINT);
+                startService(intent);
             }
         });
     }

@@ -38,6 +38,7 @@ import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.util.Log;
 import android.widget.ArrayAdapter;
+import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.Toast;
 
@@ -575,10 +576,6 @@ public class NavigatorService extends Service {
                     logAndSendMessage(TAG, String.valueOf(running));
 
                     running = true;
-//                    if (running){
-//                        stopThisService();
-//                        running = false;
-//                    };
                     break;
                 case F_SET_DYNAMIC_REFERENCE:
                     logAndSendMessage(TAG,"F_SET_DYNAMIC_REFERENCE");
@@ -605,10 +602,12 @@ public class NavigatorService extends Service {
                     running = true;
                     break;
                 case F_SET_SHARE_POINT:
-                    SharedId = intent.getExtras().getInt("id");
-                    logAndSendMessage(TAG, String.valueOf(SharedId));
-                    positionSharing = true;
-                    running = true;
+                    thisHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            new registerLocationSharing().execute(currentLocation.getLongitude(),currentLocation.getLatitude(),Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+                        }
+                    });
                     break;
             }
         }
@@ -622,9 +621,6 @@ public class NavigatorService extends Service {
                 .setContentIntent(pendingIntent)
                 .setWhen(System.currentTimeMillis())
                 .build();
-
-//        notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-//        notificationManager.notify(10,notification);
 
         startForeground(1, notification);
 
@@ -658,6 +654,76 @@ public class NavigatorService extends Service {
         stopForeground(true);
 
         running = false;
+    }
+
+    public class registerLocationSharing extends AsyncTask<Double, Void,Integer>{
+        @Override
+        protected Integer doInBackground(Double... floats) {
+            HttpsURLConnection con = null;
+            String urlSt = "https://peaceful-caverns-31016.herokuapp.com/api/v1/application/registration?lon="
+                    + floats[0].toString()
+                    +"&lat="
+                    + floats[1].toString()
+                    +"&bea="
+                    + floats[2].toString()
+                    +"&spd="
+                    + floats[3].toString();
+            Log.i(TAG,"URL: " + urlSt);
+            String method = "POST";
+            SharedId = 0;
+
+            try{
+                URL url = new URL(urlSt);
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(true);
+
+                con.connect();
+
+                InputStream in = con.getInputStream();
+                String strJson = readInputStream(in);
+                SharedId = new JSONObject(strJson).getInt("id");
+                Log.i(TAG,String.valueOf(SharedId));
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return SharedId;
+        }
+
+        @Override
+        protected void onPostExecute(Integer id) {
+            super.onPostExecute(id);
+
+            logAndSendMessage(TAG, "SharedId: "+String.valueOf(id));
+            positionSharing = true;
+            running = true;
+
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+                Log.i(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
     }
 
     public class updateLocationSharing extends AsyncTask<Double, Void,Integer>{
