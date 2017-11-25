@@ -1,97 +1,44 @@
 package com.example.issei.navigator2;
 
-import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothGatt;
-import android.bluetooth.BluetoothGattCallback;
-import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattDescriptor;
-import android.bluetooth.BluetoothGattService;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.BluetoothProfile;
-import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanFilter;
-import android.bluetooth.le.ScanResult;
-import android.bluetooth.le.ScanSettings;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
-import android.database.DataSetObserver;
 import android.location.Location;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Handler;
-import android.os.Looper;
-import android.os.ParcelUuid;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.FragmentActivity;
+import android.os.IBinder;
+import android.os.Message;
+import android.os.Messenger;
+import android.os.RemoteException;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.EditText;
-import android.widget.ListAdapter;
 import android.widget.ListView;
+import android.widget.Switch;
 import android.widget.Toast;
 
-import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.api.Api;
-import com.google.android.gms.common.api.GoogleApi;
-import com.google.android.gms.common.api.GoogleApiClient;
-import com.google.android.gms.common.api.PendingResult;
-import com.google.android.gms.common.api.ResultCallback;
-import com.google.android.gms.common.api.Status;
-import com.google.android.gms.location.FusedLocationProviderApi;
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationListener;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.location.LocationSettingsRequest;
-import com.google.android.gms.location.LocationSettingsResult;
-import com.google.android.gms.location.LocationSettingsStates;
-
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.HttpsURLConnection;
-import javax.security.auth.login.LoginException;
 
-public class MainActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener {
-    BluetoothAdapter bluetoothAdapter;
-    BluetoothLeScanner bluetoothLeScanner;
-    HashMap scanResults;
-    ScanCallback scanCallback;
-    Boolean scanning       = false;
-    Boolean connected      = false;
-
-    BluetoothGatt bluetoothGatt;
+public class MainActivity extends AppCompatActivity {
 
     Handler handler;
     Handler bleHandler;
@@ -107,7 +54,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     static final int FLAG_CURRENT_LOCATION = 0;
     static final int FLAG_BEARING = 1;
     static final int FLAG_LOCATION_BEARING = 2;
-    GoogleApiClient googleApiClient;
+//    GoogleApiClient googleApiClient;
     boolean SetRefPosition = false;
     Location currentLocation;
     Location YNU = new Location("");
@@ -119,7 +66,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     EditText editTextLong;
     Button   btnSetLocation;
     ListView logArea;
-    ArrayAdapter logListAdapter;
+    public ArrayAdapter logListAdapter;
+    Switch serviceStatusSwitch;
 
     EditText editTextId;
     Button btnGetLoc;
@@ -131,6 +79,59 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
     JSONObject jsonObject;
     int id=0;
+
+    static final int F_SWITCH_SERVICE = 0;
+    static final int F_SET_DYNAMIC_REFERENCE = 1;
+    static final int F_SET_STATIC_REFERENCE = 2;
+    static final int F_SET_SHARE_POINT = 3;
+
+    Messenger messenger;
+    boolean isBound;
+
+    ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+            isBound = true;
+            messenger = new Messenger(iBinder);
+
+            sendMessage();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName componentName) {
+            isBound = false;
+        }
+    };
+
+    Messenger replyMessenger = new Messenger(new HandlerReplyMsg());
+
+    class HandlerReplyMsg extends Handler{
+        @Override
+        public void handleMessage(Message msg) {
+            super.handleMessage(msg);
+            String receivedMessage = msg.obj.toString();
+            Log.i(TAG,receivedMessage);
+            logListAdapter.add(receivedMessage);
+            logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+        }
+    }
+
+    public void sendMessage(){
+        if (isBound){
+            try {
+                Message message = Message.obtain(null, NavigatorService.MESSAGE,1,1);
+                message.replyTo = replyMessenger;
+
+                Bundle bundle = new Bundle();
+                bundle.putString("rec","Hi, you hear me");
+                message.setData(bundle);
+
+                messenger.send(message);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -147,22 +148,27 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         editTextLong = (EditText) findViewById(R.id.editTextLong);
         btnSetLocation = (Button) findViewById(R.id.buttonSetLoc);
         logArea = (ListView) findViewById(R.id.logArea);
-        logListAdapter = new ArrayAdapter<String>(this,android.R.layout.simple_list_item_1);
+        logListAdapter = new ArrayAdapter<String>(this,R.layout.log_area);
         logArea.setAdapter(logListAdapter);
+        logListAdapter.add(TAG + ": onCreate");
+        serviceStatusSwitch = findViewById(R.id.ServiceStatusSwitch);
 
-        btnButton2 = findViewById(R.id.button2);
-        btnButton2.setOnClickListener(new View.OnClickListener() {
+        Intent intent = new Intent(MainActivity.this,NavigatorService.class);
+        intent.putExtra("Flag",F_SWITCH_SERVICE);
+        startService(intent);
+        bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
+        serviceStatusSwitch.setChecked(true);
+
+        serviceStatusSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
-            public void onClick(View view) {
-                Intent intent = new Intent(MainActivity.this,NavigatorService.class);
-                service = !service;
-                if (!service){
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                if (checked){
                     startService(intent);
-                } else {
+                    bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
+                }else{
+                    unbindService(serviceConnection);
                     stopService(intent);
                 }
-
-
             }
         });
 
@@ -172,8 +178,12 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             @Override
             public void onClick(View view) {
                 sharingMode = 0;
-                if (editTextId.getText().equals("") ){
+                if (!editTextId.getText().equals("") ){
                     id = Integer.parseInt(String.valueOf(editTextId.getText()));
+                    Intent intent = new Intent(MainActivity.this,NavigatorService.class);
+                    intent.putExtra("Flag",F_SET_DYNAMIC_REFERENCE);
+                    intent.putExtra("id",id);
+                    startService(intent);
 
                     final Runnable runnable = new Runnable() {
                         @Override
@@ -189,428 +199,25 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 }
             }
         });
-
-        btnGetShareId = (Button) findViewById(R.id.btnGetShareId);
-
-        BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
-        bluetoothAdapter = bluetoothManager.getAdapter();
-
-//        StartBleScan();
-
-        if (googleApiClient == null) {
-            googleApiClient = new GoogleApiClient.Builder(this)
-                    .addConnectionCallbacks(this)
-                    .addOnConnectionFailedListener(this)
-                    .addApi(LocationServices.API)
-                    .build();
-        }
     }
 
     @Override
     protected void onStart() {
-        googleApiClient.connect();
         super.onStart();
     }
 
     @Override
     protected void onStop() {
-
-        bluetoothGatt.disconnect();
-
-        googleApiClient.disconnect();
         super.onStop();
-    }
-
-    private void StartBleScan() {
-        if (!hasBLEPermissions() || scanning) {
-            return;
+        if (isBound){
+            unbindService(serviceConnection);
+            isBound = false;
         }
-        List<ScanFilter> scanFilterList = new ArrayList<>();
-        ScanFilter scanFilter1 = new ScanFilter.Builder()
-                .setDeviceName("UART Service")
-                .build();
-        scanFilterList.add(scanFilter1);
-        ScanSettings scanSettings = new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
-                .build();
-        scanResults = new HashMap<>();
-        scanCallback = new BLEScanCallback();
-
-        bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
-        bluetoothLeScanner.startScan(scanFilterList, scanSettings, scanCallback);
-        scanning = true;
-
-        bleHandler = new Handler();
-        bleHandler.postDelayed(this::stopLeScan, SCAN_PERIOD);
-    }
-
-    private void stopLeScan() {
-        Log.i(TAG, String.valueOf(scanning)+", "+(bluetoothAdapter!=null)+", "+bluetoothAdapter.isEnabled()+", "+(bluetoothLeScanner != null));
-        if (scanning && (bluetoothAdapter != null) && (bluetoothAdapter.isEnabled()) && bluetoothLeScanner != null) {
-            Log.i(TAG,"stopScan");
-            bluetoothLeScanner.stopScan(scanCallback);
-            scanComplete();
-        } else if (scanning){
-            Log.i(TAG,"stopScan: device not found");
-            logListAdapter.add("stopLeScan: Device not found");
-        }
-        scanCallback = null;
-        bleHandler = null;
-        scanning = false;
-    }
-
-    private void scanComplete() {
-        if (scanResults.isEmpty()) {
-            Log.i(TAG,"Scan result is empty");
-            return;
-        }
-        for (Object deviceAddress : scanResults.keySet()) {
-            Log.i(TAG, "Found devices: " + deviceAddress.toString());
-        }
-    }
-
-    @Override
-    public void onConnected(@Nullable Bundle bundle) {
-        LocationRequest locationRequest = new LocationRequest();
-        locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
-        locationRequest.setInterval(5000);
-
-        btnSetLocation.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                if ((editTextLong.getText().equals("")) | (editTextLat.getText().equals(""))){
-                    Toast.makeText(MainActivity.this, "経度(Longitude)と緯度(Latitude)を目的地に指定できます", Toast.LENGTH_SHORT).show();
-                }else{
-                    try {
-                        SetRefPosition = true;
-                        refPosition.setLongitude(Double.parseDouble(editTextLong.getText().toString()));
-                        refPosition.setLatitude(Double.parseDouble(editTextLat.getText().toString()));
-                        logListAdapter.add("onClick: Reference position was changed");
-                        logListAdapter.add("Position: " + String.valueOf(refPosition.getLongitude()) + ", " + String.valueOf(refPosition.getLatitude()));
-                    } catch (NumberFormatException e){
-                        Toast.makeText(MainActivity.this, "経度(Longitude)と緯度(Latitude)を目的地に指定できます", Toast.LENGTH_SHORT).show();
-                        SetRefPosition = false;
-                    }
-                }
-            }
-        });
-
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return;
-        }
-
-        LocationServices.FusedLocationApi.requestLocationUpdates(googleApiClient, locationRequest, this::onLocationChanged);
-        btnGetShareId.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                sharingMode = 1;
-            }
-        });
-    }
-
-
-    @Override
-    public void onConnectionSuspended(int i) {
-
-    }
-
-    @Override
-    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
-
-    }
-
-    @Override
-    public void onLocationChanged(Location location) {
-
-        logListAdapter.add("Current location: "+location.getLongitude()+", "+location.getLatitude());
-//        switch (sharingMode){
-//            case 0: //get reference position
-                currentLocation = location;
-                YNU.setLatitude(35.4741875);
-                YNU.setLongitude(139.5932654);
-
-                float tempBearing = location.getBearing();
-                if (tempBearing != 0){
-                    fBearing = tempBearing;
-                    currentLocation.setBearing(fBearing);
-                }
-
-                if (SetRefPosition){
-                    bearing = currentLocation.bearingTo(refPosition) - fBearing > 0 ? currentLocation.bearingTo(refPosition) - fBearing : currentLocation.bearingTo(refPosition) - fBearing + 360 ;
-                    logListAdapter.add("Bearing to Posi: " + String.valueOf(bearing));
-                } else {
-                    bearing = currentLocation.bearingTo(YNU) - fBearing > 0 ? currentLocation.bearingTo(YNU) - fBearing : currentLocation.bearingTo(YNU) - fBearing + 360 ;
-                    logListAdapter.add("Bearing to YNU: " + String.valueOf(bearing));
-                }
-
-                int intSpeedRef = (int) refPosition.getSpeed();
-                if (intSpeedRef > 256){intSpeedRef = 256;};
-//                intSpeedLevelRef = Math.log(refPosition.getSpeed())/Math.log(1.5);  x=ln(speed)/ln(1.5) ←速度をいい感じに分類できる
-
-                float bearingRef = refPosition.getBearing() -fBearing;
-                if (bearingRef < 0){bearingRef += 360;};
-
-                if (fBearing < 0){fBearing += 360;};
-
-                byte bBearings   = (byte) ((byte) (((byte)(((int)(fBearing / 360 * 16))& 0x0f)) << 4) |((byte) ((int)(bearing /360 * 16))& 0x0f));
-                byte bRefSpeed   = (byte) ((byte) (intSpeedRef) & 0xFF);
-                byte bRefBearing = (byte) ((int)(bearingRef / 360 * 16));
-                Log.i(TAG, "fBearing  = " + String.valueOf(fBearing));
-                Log.i(TAG, "bearing   = " + String.valueOf(bearing));
-                Log.i(TAG, "bBearings = " + String.valueOf(bBearings));
-                Log.i(TAG, "bRefSpeed = " + String.valueOf(bRefSpeed));
-                Log.i(TAG, "bRefBearing = " + String.valueOf(bRefBearing));
-
-                int intLatitude  = (int) (location.getLatitude()*100000);
-                int intLongitude = (int) (location.getLongitude()*100000);
-
-
-
-                Log.i(TAG,location.toString());
-                Log.i(TAG,"GATT: "+(bluetoothGatt!=null)+" Connected: " + String.valueOf(connected ));
-                if (bluetoothGatt != null && connected){
-                    Boolean successed = false;
-
-                    byte[] buffer = new byte[12];
-                    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-                    byteBuffer.put((byte) FLAG_LOCATION_BEARING)
-                            .putInt(intLongitude)
-                            .putInt(intLatitude)
-                            .put(bBearings)
-                            .put(bRefSpeed)
-                            .put(bRefBearing);
-                    Log.i(TAG, new String(buffer));
-                    for (byte b : buffer) {
-                        Log.i(TAG, String.valueOf(b & 0xff));
-                        System.out.print(" ");
-                    }
-
-                    BluetoothGattService bluetoothGattService = bluetoothGatt.getService(UUID.fromString(UART_SERVICE));
-                    BluetoothGattCharacteristic bluetoothGattCharacteristic = bluetoothGattService.getCharacteristic(UUID.fromString(UART_WRITE));
-                    bluetoothGattCharacteristic.setValue(buffer);
-                    bluetoothGattCharacteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-
-                    if (!successed){
-                        Log.i(TAG,"Sending...");
-                        successed = bluetoothGatt.writeCharacteristic(bluetoothGattCharacteristic);
-                    }
-                }
-//                break;
-//            case 1: // send reference position
-        if (sharingMode > 0){
-            if (!registered){
-                Log.i(TAG,"register ref");
-                logListAdapter.add("registering location as ref.");
-                new registerLocationSharing().execute(location.getLongitude(), location.getLatitude(), Double.parseDouble(String.valueOf(location.getBearing())),Double.parseDouble(String.valueOf(location.getSpeed())));
-                registered = true;
-            } else {
-                Log.i(TAG,"update ref");
-                logListAdapter.add("update ref position");
-                new updateLocationSharing().execute(location.getLongitude(), location.getLatitude(), Double.parseDouble(String.valueOf(location.getBearing())),Double.parseDouble(String.valueOf(location.getSpeed())));
-            }
-//            break;
-        }
-    }
-
-    private class BLEScanCallback extends ScanCallback{
-
-        @Override
-        public void onScanResult(int callbackType, ScanResult result) {
-            super.onScanResult(callbackType, result);
-//            addScanResult(result);
-            BluetoothDevice device = result.getDevice();
-            String deviceAddress = device.getAddress();
-            stopLeScan();
-            Log.i(TAG,"Device Found: "+deviceAddress);
-            GattClientCallback gattClientCallback = new GattClientCallback();
-            device.connectGatt(MainActivity.this,false,gattClientCallback);
-        }
-
-        @Override
-        public void onBatchScanResults(List<ScanResult> results) {
-            super.onBatchScanResults(results);
-//            for (ScanResult result : results){
-//                addScanResult(result);
-//            }
-        }
-
-        @Override
-        public void onScanFailed(int errorCode) {
-            super.onScanFailed(errorCode);
-        }
-
-        void addScanResult(ScanResult result){
-            stopLeScan();
-            BluetoothDevice device = result.getDevice();
-            String deviceAddress = device.getAddress();
-            Log.i(TAG,"Device Found: "+deviceAddress);
-            scanResults.put(deviceAddress,device.getUuids());
-            connectDevice(device);
-        }
-
-        void connectDevice(BluetoothDevice device){
-            Log.i(TAG,"Connect to: " +device.toString());
-            GattClientCallback gattClientCallback = new GattClientCallback();
-            bluetoothGatt = device.connectGatt(MainActivity.this,false,gattClientCallback);
-        }
-
-        class GattClientCallback extends BluetoothGattCallback{
-            public GattClientCallback() {
-                super();
-            }
-
-            @Override
-            public void onPhyUpdate(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
-                super.onPhyUpdate(gatt, txPhy, rxPhy, status);
-            }
-
-            @Override
-            public void onPhyRead(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
-                super.onPhyRead(gatt, txPhy, rxPhy, status);
-            }
-
-            @Override
-            public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-                super.onConnectionStateChange(gatt, status, newState);
-                Log.i(TAG, "onConnectionStateChange");
-                Log.i(TAG, "status: " + String.valueOf(status) + " newState: " + String.valueOf(newState));
-
-                if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED) {
-                    Log.i(TAG, "CONNECTED");
-                    gatt.discoverServices();
-                    return;
-                }
-
-                if (status == BluetoothGatt.GATT_FAILURE) {
-                    Log.i(TAG, "GATT_FAILURE");
-                    disconnectGattServer();
-//                    StartBleScan();
-                    return;
-                } else if (status != BluetoothGatt.GATT_SUCCESS) {
-                    Log.i(TAG, "GATT_NOT SUCCESS");
-                    disconnectGattServer();
-                    StartBleScan();
-                    return;
-                } else {
-                    Log.i(TAG,"status; GATT Success");
-                }
-
-
-                if (newState == BluetoothProfile.STATE_CONNECTED){
-                    Log.i(TAG,"STATE_CONNECTED");
-                    gatt.discoverServices();
-
-                } else if(newState == BluetoothProfile.STATE_DISCONNECTED){
-                    Log.i(TAG,"STATE_DISCONNECTED");
-                    connected = false;
-                    StartBleScan();
-                } else {
-                    Log.e(TAG, "Unknown state");
-                }
-            }
-
-            @Override
-            public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-                super.onServicesDiscovered(gatt, status);
-                if (status == BluetoothGatt.GATT_SUCCESS){
-                    Log.i(TAG, String.valueOf(gatt.getServices()));
-                    bluetoothGatt = gatt;
-                    Log.i(TAG, String.valueOf(gatt.getServices()));
-                    connected = true;
-                    return;
-                } else {
-                    Log.e(TAG,"onServiceDiscovered");
-                }
-            }
-
-            @Override
-            public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-                super.onCharacteristicRead(gatt, characteristic, status);
-                Log.i(TAG,characteristic.getStringValue(0));
-
-            }
-
-            @Override
-            public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-                super.onCharacteristicWrite(gatt, characteristic, status);
-            }
-
-            @Override
-            public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-                super.onCharacteristicChanged(gatt, characteristic);
-                Log.i(TAG,gatt.toString());
-                Log.i(TAG, Arrays.toString(characteristic.getValue()));
-            }
-
-            @Override
-            public void onDescriptorRead(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
-                super.onDescriptorRead(gatt, descriptor, status);
-            }
-
-            @Override
-            public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
-                super.onDescriptorWrite(gatt, descriptor, status);
-            }
-
-            @Override
-            public void onReliableWriteCompleted(BluetoothGatt gatt, int status) {
-                super.onReliableWriteCompleted(gatt, status);
-            }
-
-            @Override
-            public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
-                super.onReadRemoteRssi(gatt, rssi, status);
-            }
-
-            @Override
-            public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
-                super.onMtuChanged(gatt, mtu, status);
-            }
-
-            void disconnectGattServer(){
-                connected = false;
-                if(bluetoothGatt != null){
-                    bluetoothGatt.disconnect();
-                    bluetoothGatt.close();
-                }
-            }
-        }
-    }
-
-    private boolean hasBLEPermissions(){
-        if (bluetoothAdapter==null || !bluetoothAdapter.isEnabled()){
-            requestBLEEnable();
-            return false;
-        }else if(!hasLocationPermissions()){
-            requestLocationEnable();
-            return false;
-        }
-        return true;
-    }
-
-    private boolean hasLocationPermissions(){
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-        };
-        return true;
     }
 
     private void requestBLEEnable(){
         Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
         startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
-    }
-
-    private void requestLocationEnable(){
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},REQUEST_ENABLE_LOCATION);
-        }
     }
 
     public class registerLocationSharing extends AsyncTask<Double, Void,Integer>{
@@ -664,6 +271,11 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                     editTextId.setText(String.valueOf(id));
                 }
             });
+
+            Intent intent = new Intent(MainActivity.this,NavigatorService.class);
+            intent.putExtra("Flag",F_SET_SHARE_POINT);
+            intent.putExtra("id",id);
+            startService(intent);
         }
 
         public String readInputStream(InputStream in) throws IOException {
@@ -796,5 +408,4 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             return sb.toString();
         }
     }
-
 }
