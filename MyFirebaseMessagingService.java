@@ -1,6 +1,7 @@
 package com.example.issei.navigator2;
 
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
@@ -15,6 +16,8 @@ import android.util.Log;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Created by issei on 2017/11/27.
@@ -30,6 +33,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
 
     boolean isBound = false;
     Messenger messenger;
+
     ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
@@ -76,10 +80,9 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(remoteMessage);
         Log.i(TAG, String.valueOf(remoteMessage.getData()));
 
-        Intent intent = new Intent(this,NavigatorService.class);
-        isBound = bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
+        bindService(intent,serviceConnection,0);
         if (isBound){
-            sendByteMessage("push",String.valueOf(remoteMessage.getData()));
+            sendByteMessage("command",SerialService.COMMAND_INIT);
         }
         unbindService(serviceConnection);
     }
@@ -97,5 +100,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
     @Override
     public void onSendError(String s, Exception e) {
         super.onSendError(s, e);
+
     }
 }
