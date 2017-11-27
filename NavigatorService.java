@@ -19,8 +19,10 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.location.Location;
@@ -83,7 +85,6 @@ public class NavigatorService extends Service {
     Messenger messenger = new Messenger(new IncomingHandler());
     Messenger replyMessenger;
     private final IBinder iBinder = new LocalBinder();
-    private final Random  randomGenerator = new Random();
 
     static final int F_SWITCH_SERVICE = 0;
     static final int F_SET_DYNAMIC_REFERENCE = 1;
@@ -127,6 +128,9 @@ public class NavigatorService extends Service {
     private boolean positionSharing = false;
     int SharedId;
     int ReferenceId;
+
+    private boolean isBound = false;
+    private static final byte COMMAND_INITIALIZE = 0;
 
     Runnable bleScanRunnable = new Runnable() {
         @Override
@@ -187,6 +191,50 @@ public class NavigatorService extends Service {
         }
     }
 
+    ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+            isBound = true;
+            messenger = new Messenger(iBinder);
+            sendByteMessage("command", SerialService.COMMAND_INIT);
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName componentName) {
+            isBound = false;
+        }
+    };
+
+    public void sendMessage(String key, String value){
+        if (isBound){
+            try {
+                Message message = Message.obtain(null, SerialService.CODE_COMMAND,0,0);
+                Bundle bundle = new Bundle();
+                bundle.putString(key, value);
+                message.setData(bundle);
+
+                messenger.send(message);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void sendByteMessage(String key, Byte value){
+        if (isBound){
+            try {
+                Message message = Message.obtain(null, SerialService.CODE_COMMAND,0,0);
+                Bundle bundle = new Bundle();
+                bundle.putByte(key, value);
+                message.setData(bundle);
+
+                messenger.send(message);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
     public void logAndSendMessage(String... texts){
         Log.i(texts[0],texts[1]);
         sendMessageToActivity(texts[1]);
@@ -227,8 +275,10 @@ public class NavigatorService extends Service {
         logAndSendMessage(TAG, "MainLooper: " + String.valueOf(Looper.getMainLooper().getClass()));
 
 //        sendToast("onCreate");
+        Intent intent = new Intent(this,SerialService.class);
+        startService(intent);
 
-        thisHandler.post(showStatusRunnable);
+        bindService(intent,serviceConnection,BIND_AUTO_CREATE);
 
         startBleScan();
 
@@ -651,6 +701,8 @@ public class NavigatorService extends Service {
             googleApiClient.disconnect();
         }
 
+        unbindService(serviceConnection);
+        stopService(new Intent(this,SerialService.class));
         stopForeground(true);
 
         running = false;
