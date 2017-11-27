@@ -80,8 +80,8 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(remoteMessage);
         Log.i(TAG, String.valueOf(remoteMessage.getData()));
 
-        bindService(intent,serviceConnection,0);
-        if (isBound){
+
+        if (bindService(intent,serviceConnection,0)){
             sendByteMessage("command",SerialService.COMMAND_INIT);
         }
         unbindService(serviceConnection);
