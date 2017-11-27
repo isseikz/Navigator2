@@ -49,6 +49,10 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
+import com.google.firebase.iid.FirebaseInstanceId;
+import com.google.firebase.iid.FirebaseInstanceIdService;
+import com.google.firebase.messaging.FirebaseMessagingService;
+import com.google.firebase.messaging.RemoteMessage;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -80,6 +84,8 @@ public class NavigatorService extends Service {
     String toastText = "";
 
     boolean running;
+
+    MyFirebaseInstanceIdService myFirebaseInstanceIdService;
 
     static final int MESSAGE = 1;
     Messenger messenger = new Messenger(new IncomingHandler());
@@ -170,7 +176,7 @@ public class NavigatorService extends Service {
             if (msg.what == MESSAGE){
                 Bundle bundle = msg.getData();
                 replyMessenger = msg.replyTo;
-                sendMessageToActivity("Navigator Service is now bound");
+                logAndSendMessage(TAG, String.valueOf(bundle));
             }
         }
     }

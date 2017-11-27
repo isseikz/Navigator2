@@ -30,7 +30,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
 
     boolean isBound = false;
     Messenger messenger;
-
     ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
@@ -77,10 +76,12 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(remoteMessage);
         Log.i(TAG, String.valueOf(remoteMessage.getData()));
 
-        bindService(intent,serviceConnection,0);
+        Intent intent = new Intent(this,NavigatorService.class);
+        isBound = bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
         if (isBound){
-            sendByteMessage("command",SerialService.COMMAND_INIT);
+            sendByteMessage("push",String.valueOf(remoteMessage.getData()));
         }
+        unbindService(serviceConnection);
     }
 
     @Override

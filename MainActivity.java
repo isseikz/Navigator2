@@ -25,6 +25,8 @@ import android.widget.ListView;
 import android.widget.Switch;
 import android.widget.Toast;
 
+import com.google.firebase.iid.FirebaseInstanceId;
+
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -164,6 +166,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        String refreshedToken = FirebaseInstanceId.getInstance().getToken();
+        Log.i(TAG,"Refreshed token: "+refreshedToken);
+
         handler = new Handler();
         refPosition = new Location("");
 
