@@ -11,6 +11,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
+import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 
 import com.google.firebase.messaging.FirebaseMessagingService;
@@ -25,54 +26,12 @@ import java.util.regex.Pattern;
 
 public class MyFirebaseMessagingService extends FirebaseMessagingService {
     static final String TAG = "Navigator2";
-    public MyFirebaseMessagingService() {
-        super();
-    }
+    private LocalBroadcastManager localBroadcastManager;
 
-    Intent intent = new Intent(this,SerialService.class);
-
-    boolean isBound = false;
-    Messenger messenger;
-
-    ServiceConnection serviceConnection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
-            isBound = true;
-            messenger = new Messenger(iBinder);
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName componentName) {
-            isBound = false;
-        }
-    };
-
-    Messenger replyMessenger = new Messenger(new HandlerReplyMsg());
-
-    class HandlerReplyMsg extends Handler{
-        @Override
-        public void handleMessage(Message msg) {
-            super.handleMessage(msg);
-            String receivedMessage = msg.obj.toString();
-            Log.i(TAG,receivedMessage);
-        }
-    }
-
-    public void sendByteMessage(String key, Byte value){
-        if (isBound){
-            try {
-                Message message = Message.obtain(null, NavigatorService.MESSAGE,0,0);
-                message.replyTo = replyMessenger;
-
-                Bundle bundle = new Bundle();
-                bundle.putByte(key, value);
-                message.setData(bundle);
-
-                messenger.send(message);
-            } catch (RemoteException e) {
-                e.printStackTrace();
-            }
-        }
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        localBroadcastManager = LocalBroadcastManager.getInstance(this);
     }
 
     @Override
@@ -80,11 +39,8 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(remoteMessage);
         Log.i(TAG, String.valueOf(remoteMessage.getData()));
 
-
-        if (bindService(intent,serviceConnection,0)){
-            sendByteMessage("command",SerialService.COMMAND_INIT);
-        }
-        unbindService(serviceConnection);
+        Intent intent = new Intent("FCM");
+        localBroadcastManager.sendBroadcast(intent);
     }
 
     @Override

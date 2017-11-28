@@ -9,6 +9,7 @@ import android.os.IBinder;
 import android.os.Message;
 import android.os.Messenger;
 import android.support.annotation.Nullable;
+import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 
 import jp.ksksue.driver.serial.FTDriver;
@@ -19,13 +20,20 @@ import jp.ksksue.driver.serial.FTDriver;
 
 public class SerialService extends Service {
     private static final String TAG = "Navigator/SerialService";
-    Handler thisHandler = new Handler();
 
     public static final int CODE_COMMAND = 1;
+    public static final int CODE_WALKSTEP = 2;
     public static final byte COMMAND_INIT = (byte) 0x00;
+    public static final byte COMMAND_WALKSTEP = (byte) 0x01;
 
     private static final String ACTION_USB_PERMISSION ="jp.ksksue.tutorial.USB_PERMISSION";
     FTDriver device;
+
+    LocalBroadcastManager localBroadcastManager;
+    Intent intent;
+
+    Handler thisHandler = new Handler();
+    boolean runningService;
 
     @Override
     public void onCreate() {
@@ -36,16 +44,12 @@ public class SerialService extends Service {
         PendingIntent pendingIntent = PendingIntent.getBroadcast(SerialService.this, 0, new Intent(ACTION_USB_PERMISSION), 0);
         device.setPermissionIntent(pendingIntent);
 
+        localBroadcastManager  = LocalBroadcastManager.getInstance(this);
+        intent = new Intent("Serial");
 
-//        new Thread(new Runnable() {
-//            @Override
-//            public void run() {
-//                vibrateMotor(1,100,50,200,100,300);
-//            }
-//        }).start();
-//        new Thread(mLoop).start();
+        runningService = true;
+//        thisHandler.post(mLoop);
     }
-
 
     class IncomingHandler extends Handler{
         @Override
@@ -61,6 +65,13 @@ public class SerialService extends Service {
                                 device.begin(FTDriver.BAUD115200);
                                 vibrateMotor(device, 1,100,200,200,200,300);
                             }
+                            break;
+                        case COMMAND_WALKSTEP:
+                            device.begin(FTDriver.BAUD115200);
+                            if (device.isConnected()){
+                                vibrateMotor(device,1,100);
+                            }
+                            break;
                     }
                     break;
                 default:
@@ -91,6 +102,7 @@ public class SerialService extends Service {
         if (device.isConnected()){
             device.end();
         }
+        runningService = false;
     }
 
     public boolean isConnected(){
@@ -136,15 +148,21 @@ public class SerialService extends Service {
         @Override
         public void run() {
             int i, len;
-
             // [FTDriver] Create Read Buffer
             byte[] rbuf = new byte[4096]; // 1byte <--slow-- [Transfer Speed] --fast--> 4096 byte
-            for (; ; ) {
+            while (runningService ) {
+                localBroadcastManager.sendBroadcast(new Intent("Log").putExtra("text","reading..."));
                 if (device.isConnected()){
                     len = device.read(rbuf);
                     String str1 = new String(rbuf);
+                    intent.putExtra("data",str1.getBytes());
+                    localBroadcastManager.sendBroadcast(intent);
                 } else {
-                    return;
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
                 }
             }
         }

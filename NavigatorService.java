@@ -19,9 +19,11 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
@@ -38,6 +40,7 @@ import android.os.RemoteException;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
@@ -58,15 +61,20 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.DataOutputStream;
 import java.io.FileDescriptor;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -82,6 +90,8 @@ import javax.net.ssl.HttpsURLConnection;
 public class NavigatorService extends Service {
     private static final String TAG = NavigatorService.class.getName();
     String toastText = "";
+    String token = FirebaseInstanceId.getInstance().getToken();
+    String refToken;
 
     boolean running;
 
@@ -272,11 +282,46 @@ public class NavigatorService extends Service {
         super();
     }
 
+    private BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            sendByteMessage("command",SerialService.COMMAND_WALKSTEP);
+        }
+    };
+
+    private BroadcastReceiver broadcastReceiverToken = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            token = intent.getStringExtra("token");
+            logAndSendMessage(TAG, "Token is changed: "+token);
+        }
+    };
+
+    private BroadcastReceiver broadcastReceiverSerial = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            byte[] data = intent.getByteArrayExtra("data");
+            logAndSendMessage(TAG, "Data received: " + String.valueOf(data));
+        }
+    };
+
+    private BroadcastReceiver broadcastReceiverLog = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            logAndSendMessage(TAG,intent.getStringExtra("text"));
+        }
+    };
+
     @Override
     public void onCreate() {
         super.onCreate();
         logAndSendMessage(TAG, "onCreate");
         toastText = "onCreate";
+
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiver,new IntentFilter("FCM"));
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverToken,new IntentFilter("FMS"));
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverSerial, new IntentFilter("Serial"));
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverLog, new IntentFilter("Log"));
 
         logAndSendMessage(TAG, "MainLooper: " + String.valueOf(Looper.getMainLooper().getClass()));
 
@@ -464,6 +509,7 @@ public class NavigatorService extends Service {
 
             if (positionSharing){
                 new updateLocationSharing().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+                new notifyMyFootstep().execute();
             }
 
         }
@@ -711,6 +757,9 @@ public class NavigatorService extends Service {
         stopService(new Intent(this,SerialService.class));
         stopForeground(true);
 
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(broadcastReceiver);
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(broadcastReceiverToken);
+
         running = false;
     }
 
@@ -718,20 +767,23 @@ public class NavigatorService extends Service {
         @Override
         protected Integer doInBackground(Double... floats) {
             HttpsURLConnection con = null;
-            String urlSt = "https://peaceful-caverns-31016.herokuapp.com/api/v1/application/registration?lon="
-                    + floats[0].toString()
-                    +"&lat="
-                    + floats[1].toString()
-                    +"&bea="
-                    + floats[2].toString()
-                    +"&spd="
-                    + floats[3].toString();
-            Log.i(TAG,"URL: " + urlSt);
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v1/application/registration?lon=")
+                    .append(floats[0].toString())
+                    .append("&lat=")
+                    .append(floats[1].toString())
+                    .append("&bea=")
+                    .append(floats[2].toString())
+                    .append("&spd=")
+                    .append(floats[3].toString())
+                    .append("&token=")
+                    .append(token);
+            Log.i(TAG,"URL: " + new String(urlBuilder));
             String method = "POST";
             SharedId = 0;
 
             try{
-                URL url = new URL(urlSt);
+                URL url = new URL(new String(urlBuilder));
                 con = (HttpsURLConnection) url.openConnection();
                 con.setRequestMethod(method);
                 con.setInstanceFollowRedirects(false);
@@ -763,6 +815,7 @@ public class NavigatorService extends Service {
             logAndSendMessage(TAG, "SharedId: "+String.valueOf(id));
             positionSharing = true;
             running = true;
+            SharedId = id;
 
         }
 
@@ -788,21 +841,24 @@ public class NavigatorService extends Service {
         @Override
         protected Integer doInBackground(Double... doubles) {
             HttpsURLConnection con = null;
-            String urlSt = "https://peaceful-caverns-31016.herokuapp.com/api/v1/application/"
-                    +String.valueOf(SharedId)
-                    +"?lon="
-                    + doubles[0].toString()
-                    +"&lat="
-                    + doubles[1].toString()
-                    +"&bea="
-                    + doubles[2].toString()
-                    +"&spd="
-                    + doubles[3].toString();
-            logAndSendMessage(TAG,"URL: " + urlSt);
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v1/application/")
+                    .append(SharedId)
+                    .append("?lon=")
+                    .append(doubles[0].toString())
+                    .append("&lat=")
+                    .append(doubles[1].toString())
+                    .append("&bea=")
+                    .append(doubles[2].toString())
+                    .append("&spd=")
+                    .append(doubles[3].toString())
+                    .append("&token=")
+                    .append(token);
+            Log.i(TAG,"URL: " + new String(urlBuilder));
             String method = "POST";
 
             try{
-                URL url = new URL(urlSt);
+                URL url = new URL(new String(urlBuilder));
                 con = (HttpsURLConnection) url.openConnection();
                 con.setRequestMethod(method);
                 con.setInstanceFollowRedirects(false);
@@ -885,6 +941,13 @@ public class NavigatorService extends Service {
                 } catch(JSONException e){
                     refPosition.setSpeed((float) jsonObject.getDouble(null));
                 }
+
+                try{
+                    refToken = jsonObject.getString("token");
+                    Log.i(TAG,refToken);
+                }catch (JSONException e){
+
+                }
             } catch (MalformedURLException e) {
                 e.printStackTrace();
             } catch (ProtocolException e) {
@@ -913,6 +976,71 @@ public class NavigatorService extends Service {
             }
             return sb.toString();
         }
+    }
+
+    public class notifyMyFootstep extends AsyncTask<Void, Void,Integer>{
+        @Override
+        protected Integer doInBackground(Void... voids) {
+            HttpsURLConnection con = null;
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://fcm.googleapis.com/fcm/send");
+
+            Log.i(TAG,"URL: " + new String(urlBuilder));
+            String method = "POST";
+            try{
+                URL url = new URL(new String(urlBuilder));
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(true);
+                con.setRequestProperty("Authorization","key=AAAA210pqpM:APA91bFfAogCaB2xesRHJXPzSSaxFyC1X19m9ggy6bA5_fB9yoAqZ1Mzd3-kqjA3JrjJgXefqZm4SrAcGEIotCFNapOl0qBjy0Dtnz6L1FhO8XxWTQGIQ-ZmFHgcmumdLRRlol_Ld25m");
+                con.setRequestProperty("Content-Type","application/json");
+
+                JSONObject jsonParam = new JSONObject();
+                jsonParam.put("to", refToken);
+
+                DataOutputStream os = new DataOutputStream(con.getOutputStream());
+                os.writeBytes(jsonParam.toString());
+
+                os.flush();
+                os.close();
+
+                InputStream in = con.getInputStream();
+                readInputStream(in);
+
+                con.disconnect();
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            con.disconnect();
+
+            return null;
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+                logAndSendMessage(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
+
     }
 
     @Override
