@@ -111,6 +111,7 @@ public class NavigatorService extends Service {
     static final int FLAG_CURRENT_LOCATION = 0;
     static final int FLAG_BEARING = 1;
     static final int FLAG_LOCATION_BEARING = 2;
+    static final int FLAG_WALKSTEP = 3;
 
     private Context context = this;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -295,6 +296,29 @@ public class NavigatorService extends Service {
         public void onReceive(Context context, Intent intent) {
             sendByteMessage("command",SerialService.COMMAND_WALKSTEP);
             Log.i(TAG, "Push Received! Vib!");
+
+            if (bluetoothGatt != null && connected){
+                Boolean successed = false;
+
+                byte[] buffer = new byte[12];
+                ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+                byteBuffer.put((byte) FLAG_WALKSTEP);
+                logAndSendMessage(TAG, new String(buffer));
+                for (byte b : buffer) {
+                    logAndSendMessage(TAG, String.valueOf(b & 0xff));
+                    System.out.print(" ");
+                }
+
+                bluetoothGattService = bluetoothGatt.getService(UUID.fromString(UART_SERVICE));
+                bluetoothGattCharacteristic = bluetoothGattService.getCharacteristic(UUID.fromString(UART_WRITE));
+                bluetoothGattCharacteristic.setValue(buffer);
+                bluetoothGattCharacteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+//
+                if (!successed){
+                    logAndSendMessage(TAG,"Write:   "+new String(buffer));
+                    successed = bluetoothGatt.writeCharacteristic(bluetoothGattCharacteristic);
+                }
+            }
         }
     };
 
