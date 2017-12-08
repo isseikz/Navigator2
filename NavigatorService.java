@@ -78,6 +78,7 @@ import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 import java.util.UUID;
 
@@ -183,6 +184,13 @@ public class NavigatorService extends Service {
     class IncomingHandler extends Handler{
         @Override
         public void handleMessage(Message msg) {
+            if (msg.getData().getString("command") != null){
+                String strCommand = msg.getData().getString("command");
+                if (Objects.equals(strCommand, "notifyFootStep")){
+                    notifyMyFootstep notify = new notifyMyFootstep();
+                    notify.execute();
+                }
+            }
             if (msg.what == MESSAGE){
                 Bundle bundle = msg.getData();
                 replyMessenger = msg.replyTo;
@@ -286,6 +294,7 @@ public class NavigatorService extends Service {
         @Override
         public void onReceive(Context context, Intent intent) {
             sendByteMessage("command",SerialService.COMMAND_WALKSTEP);
+            Log.i(TAG, "Push Received! Vib!");
         }
     };
 
@@ -312,6 +321,14 @@ public class NavigatorService extends Service {
         }
     };
 
+    private BroadcastReceiver broadcastReceiverFSBtn = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            logAndSendMessage(TAG,"FootStep send");
+            new notifyMyFootstep().execute();
+        }
+    };
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -322,6 +339,7 @@ public class NavigatorService extends Service {
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverToken,new IntentFilter("FMS"));
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverSerial, new IntentFilter("Serial"));
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverLog, new IntentFilter("Log"));
+
 
         logAndSendMessage(TAG, "MainLooper: " + String.valueOf(Looper.getMainLooper().getClass()));
 
@@ -945,6 +963,12 @@ public class NavigatorService extends Service {
                 try{
                     refToken = jsonObject.getString("token");
                     Log.i(TAG,refToken);
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            logAndSendMessage(TAG,"refToken="+refToken);
+                        }
+                    });
                 }catch (JSONException e){
 
                 }

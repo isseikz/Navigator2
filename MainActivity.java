@@ -72,7 +72,6 @@ public class MainActivity extends AppCompatActivity {
     Button   btnSetLocation;
     ListView logArea;
     public ArrayAdapter logListAdapter;
-    Switch serviceStatusSwitch;
 
     EditText editTextId;
     Button btnGetLoc;
@@ -81,6 +80,9 @@ public class MainActivity extends AppCompatActivity {
     boolean registered;
     Button btnButton2;
     boolean service = false;
+    public Switch switchConnectDevice;
+    Switch serviceStatusSwitch;
+    Button btnSendFootStep;
 
     JSONObject jsonObject;
     int id=0;
@@ -92,6 +94,8 @@ public class MainActivity extends AppCompatActivity {
 
     Messenger messenger;
     boolean isBound;
+
+    String refToken;
 
     ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -141,6 +145,16 @@ public class MainActivity extends AppCompatActivity {
                 }catch (IllegalStateException e){
 
                 }
+            } else if(receivedMessage.matches("refToken=.+")){
+                Pattern p = Pattern.compile("refToken=(.+)");
+                Matcher m = p.matcher(receivedMessage);
+
+                Log.i(TAG, String.valueOf(m.matches()));
+                Log.i(TAG, String.valueOf(m.groupCount()));
+                Log.i(TAG, String.valueOf(m.group(1)));
+                refToken = String.valueOf(m.group(1));
+
+                switchConnectDevice.setChecked(true);
             }
         }
     }
@@ -202,6 +216,22 @@ public class MainActivity extends AppCompatActivity {
                     unbindService(serviceConnection);
                     stopService(intent);
                 }
+            }
+        });
+
+        switchConnectDevice = findViewById(R.id.switchConnectDevice);
+        switchConnectDevice.setClickable(false);
+
+        btnSendFootStep = findViewById(R.id.btnSendFS);
+        btnSendFootStep.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if (refToken != null){
+                    sendMessage("command","notifyFootStep");
+                }else{
+                    Toast.makeText(MainActivity.this, "まずは共有先を登録", Toast.LENGTH_SHORT).show();
+                }
+
             }
         });
 
