@@ -25,6 +25,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.location.Location;
@@ -56,6 +57,7 @@ import com.google.firebase.iid.FirebaseInstanceId;
 import com.google.firebase.iid.FirebaseInstanceIdService;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
+import com.polidea.rxandroidble.RxBleClient;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -84,6 +86,8 @@ import java.util.UUID;
 
 import javax.net.ssl.HttpsURLConnection;
 
+import rx.Subscription;
+
 /**
  * Created by issei on 2017/11/17.
  */
@@ -93,6 +97,10 @@ public class NavigatorService extends Service {
     String toastText = "";
     String token = FirebaseInstanceId.getInstance().getToken();
     String refToken;
+
+    int userId;
+    int groupId;
+    boolean registering = false;
 
     boolean running;
 
@@ -112,6 +120,9 @@ public class NavigatorService extends Service {
     static final int FLAG_BEARING = 1;
     static final int FLAG_LOCATION_BEARING = 2;
     static final int FLAG_WALKSTEP = 3;
+    static final int FLAG_ROUTE_DIR = 4;
+
+    boolean routeDirectionNeeded = false;
 
     private Context context = this;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -125,6 +136,7 @@ public class NavigatorService extends Service {
     NotificationManager notificationManager;
 
     //    Variables for Bluetooth
+//    RxBleClient rxBleClient;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
     private BluetoothGatt bluetoothGatt;
@@ -147,6 +159,9 @@ public class NavigatorService extends Service {
     int SharedId;
     int ReferenceId;
 
+    double[][] route = new double[4][3];
+    int routeId = 0;
+
     private boolean isBound = false;
     private static final byte COMMAND_INITIALIZE = 0;
 
@@ -158,7 +173,7 @@ public class NavigatorService extends Service {
                 logAndSendMessage(TAG,"Device not found...");
                 bluetoothLeScanner.stopScan(scanCallback);
                 if (running){
-                    startBleScan();
+//                    startBleScan();
                 }
 //                    stopThisService();
             }
@@ -188,14 +203,28 @@ public class NavigatorService extends Service {
             if (msg.getData().getString("command") != null){
                 String strCommand = msg.getData().getString("command");
                 if (Objects.equals(strCommand, "notifyFootStep")){
-                    notifyMyFootstep notify = new notifyMyFootstep();
-                    notify.execute();
+//                    notifyMyFootstepV2 notify = new notifyMyFootstepV2();
+//                    notify.execute();
+                } else if(Objects.equals(strCommand,"Route:ON")){
+                    logAndSendMessage(TAG,"Route:ON");
+                    routeDirectionNeeded = true;
+                } else if(Objects.equals(strCommand,"Route:OFF")){
+                    routeDirectionNeeded = false;
+                    logAndSendMessage(TAG,"Route:OFF");
+                } else {
                 }
             }
+            if (Objects.equals(msg.getData().getString("command"), "notifyFootStep")){
+                notifyMyFootstepV2 notify = new notifyMyFootstepV2();
+                notify.execute();
+            }
+            if (msg.getData().getString("user_id")!=null){
+                userId = Integer.parseInt(msg.getData().getString("user_id"));
+            };
             if (msg.what == MESSAGE){
                 Bundle bundle = msg.getData();
                 replyMessenger = msg.replyTo;
-                logAndSendMessage(TAG, String.valueOf(bundle));
+//                logAndSendMessage(TAG, String.valueOf(bundle));
             }
         }
     }
@@ -353,6 +382,27 @@ public class NavigatorService extends Service {
         }
     };
 
+    private BroadcastReceiver broadcastReceiverBLEBond = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            logAndSendMessage(TAG,intent.getStringExtra("ACTION_BOND_STATE_CHANGED"));
+            Log.i(TAG,intent.getExtras().toString());
+            switch (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE,BluetoothDevice.ERROR)){
+                case BluetoothDevice.BOND_NONE:
+                    logAndSendMessage(TAG,intent.getStringExtra("BOND_NONE"));
+                    break;
+                case BluetoothDevice.BOND_BONDED:
+                    logAndSendMessage(TAG,intent.getStringExtra("BOND_BONDED"));
+                    break;
+                case BluetoothDevice.BOND_BONDING:
+                    logAndSendMessage(TAG,intent.getStringExtra("BOND_BONDING"));
+                    break;
+                default:
+                    break;
+            }
+        }
+    };
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -363,15 +413,17 @@ public class NavigatorService extends Service {
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverToken,new IntentFilter("FMS"));
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverSerial, new IntentFilter("Serial"));
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverLog, new IntentFilter("Log"));
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverBLEBond,new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED));
 
 
         logAndSendMessage(TAG, "MainLooper: " + String.valueOf(Looper.getMainLooper().getClass()));
 
 //        sendToast("onCreate");
-        Intent intent = new Intent(this,SerialService.class);
-        startService(intent);
 
-        bindService(intent,serviceConnection,BIND_AUTO_CREATE);
+//        TWELITE制御用
+//        Intent intent = new Intent(this,SerialService.class);
+//        startService(intent);
+//        bindService(intent,serviceConnection,BIND_AUTO_CREATE);
 
         startBleScan();
 
@@ -383,6 +435,13 @@ public class NavigatorService extends Service {
                     .build();
         }
         googleApiClient.connect();
+
+
+        YNU.setLatitude(35.4741875);
+        YNU.setLongitude(139.5932654);
+
+        refPosition.setLatitude(35.4741875);
+        refPosition.setLongitude(139.5932654);
     }
 
     private void startBleScan() {
@@ -417,9 +476,11 @@ public class NavigatorService extends Service {
             if (scanning) {
                 bluetoothLeScanner.stopScan(scanCallback);
                 BluetoothDevice device = result.getDevice();
+//                boolean startBond = device.createBond();
                 logAndSendMessage(TAG, device.toString());
+//                logAndSendMessage(TAG, String.valueOf(startBond));
                 GattCallback gattCallback = new GattCallback();
-                device.connectGatt(context, true, gattCallback);
+                device.connectGatt(context, false, gattCallback);  //TODO autoconnectをどうするか
                 scanning = false;
             }
         }
@@ -436,6 +497,7 @@ public class NavigatorService extends Service {
             logAndSendMessage(TAG, "onScanFailed: " + String.valueOf(errorCode));
             sendToast("Scanning was failed: " + String.valueOf(errorCode));
         }
+
     }
 
     private class GoogleApiCallbacks implements GoogleApiClient.ConnectionCallbacks {
@@ -473,15 +535,20 @@ public class NavigatorService extends Service {
         }
     }
 
+//    位置を取得した時に送信する
     class GoogleLocationListener implements LocationListener{
 
         @Override
         public void onLocationChanged(Location location) {
             logAndSendMessage(TAG, location.getLongitude() +", "+ location.getLatitude());
+            logAndSendMessage(TAG,"user id: "+String.valueOf(userId));
 
             currentLocation = location;
-            YNU.setLatitude(35.4741875);
-            YNU.setLongitude(139.5932654);
+
+            if (userId == 0 & !registering){
+                registering = true;
+                new registerUserId().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+            }
 
             float tempBearing = location.getBearing();
             if (tempBearing != 0){
@@ -490,32 +557,42 @@ public class NavigatorService extends Service {
             }
 
             if (refPosition != null){
-                bearing = currentLocation.bearingTo(refPosition) - fBearing > 0 ? currentLocation.bearingTo(refPosition) - fBearing : currentLocation.bearingTo(refPosition) - fBearing + 360 ;
+//                目標地点の方向
+//                bearing = currentLocation.bearingTo(refPosition) - fBearing > 0 ? currentLocation.bearingTo(refPosition) - fBearing : currentLocation.bearingTo(refPosition) - fBearing + 360 ;
+                bearing = currentLocation.bearingTo(refPosition)> 0 ? currentLocation.bearingTo(refPosition) : currentLocation.bearingTo(refPosition) + 360 ; //真北に対する方角
+                logAndSendMessage(TAG,"Bearing to ref: " + bearing);
 //                sendToast("Bearing to Posi: " + String.valueOf(bearing));
 //                logListAdapter.add("Bearing to Posi: " + String.valueOf(bearing));
             } else {
-                bearing = currentLocation.bearingTo(YNU) - fBearing > 0 ? currentLocation.bearingTo(YNU) - fBearing : currentLocation.bearingTo(YNU) - fBearing + 360 ;
-//                sendToast("Bearing to YNU: " + String.valueOf(bearing));
-//                logListAdapter.add("Bearing to YNU: " + String.valueOf(bearing));
+//                YNUの方向
+//                bearing = currentLocation.bearingTo(YNU) - fBearing > 0 ? currentLocation.bearingTo(YNU) - fBearing : currentLocation.bearingTo(YNU) - fBearing + 360 ;
+                bearing = currentLocation.bearingTo(YNU) > 0 ? currentLocation.bearingTo(YNU) : currentLocation.bearingTo(YNU) + 360 ; //真北に対する方角
+                logAndSendMessage(TAG,"Bearing to YNU: " + bearing);
             }
+
+            int intSpeedBody = (int) currentLocation.getSpeed();
+            if (intSpeedBody > 256){intSpeedBody = 256;};
+            byte bSpeedBody = (byte) (intSpeedBody & 0xFF);
 
             int intSpeedRef = (int) refPosition.getSpeed();
             if (intSpeedRef > 256){intSpeedRef = 256;};
 //                intSpeedLevelRef = Math.log(refPosition.getSpeed())/Math.log(1.5);  x=ln(speed)/ln(1.5) ←速度をいい感じに分類できる
 
-            float bearingRef = refPosition.getBearing() -fBearing;
+//            float bearingRef = refPosition.getBearing() -fBearing;
+            // 目標地点の移動方向（人間などを想定）
+            float bearingRef = refPosition.getBearing();
             if (bearingRef < 0){bearingRef += 360;};
-
+            // 現在地の移動方向
             if (fBearing < 0){fBearing += 360;};
 
             byte bBearings   = (byte) ((byte) (((byte)(((int)(fBearing / 360 * 16))& 0x0f)) << 4) |((byte) ((int)(bearing /360 * 16))& 0x0f));
             byte bRefSpeed   = (byte) ((byte) (intSpeedRef) & 0xFF);
             byte bRefBearing = (byte) ((int)(bearingRef / 360 * 16));
-            logAndSendMessage(TAG, "fBearing  = " + String.valueOf(fBearing));
-            logAndSendMessage(TAG, "bearing   = " + String.valueOf(bearing));
-            logAndSendMessage(TAG, "bBearings = " + String.valueOf(bBearings));
-            logAndSendMessage(TAG, "bRefSpeed = " + String.valueOf(bRefSpeed));
-            logAndSendMessage(TAG, "bRefBearing = " + String.valueOf(bRefBearing));
+            logAndSendMessage(TAG, "Travel    Dir.   : " + String.valueOf(fBearing));
+            logAndSendMessage(TAG, "Reference Dir.   : " + String.valueOf(bearing));
+            logAndSendMessage(TAG, "0x(TDir RefDir)  : " + String.valueOf(bBearings));
+            logAndSendMessage(TAG, "Ref Point Vel.   : " + String.valueOf(bRefSpeed));
+            logAndSendMessage(TAG, "Ref P Travel Dir.: " + String.valueOf(bRefBearing));
 
             int intLatitude  = (int) (location.getLatitude()*100000);
             int intLongitude = (int) (location.getLongitude()*100000);
@@ -524,14 +601,16 @@ public class NavigatorService extends Service {
             if (bluetoothGatt != null && connected){
                 Boolean successed = false;
 
-                byte[] buffer = new byte[12];
+                byte[] buffer = new byte[13];
                 ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
                 byteBuffer.put((byte) FLAG_LOCATION_BEARING)
-                        .putInt(intLongitude)
-                        .putInt(intLatitude)
-                        .put(bBearings)
-                        .put(bRefSpeed)
-                        .put(bRefBearing);
+                        .putInt(intLongitude)//経度
+                        .putInt(intLatitude) //緯度
+                        .put(bBearings)      //現在値の進行方向・現在地から目標地点への方向
+                        .put(bRefSpeed)      //目標地点の移動速さ
+                        .put(bRefBearing)    //目標地点の移動方角
+                        .put(bSpeedBody);    //現在値の移動速さ
+
                 logAndSendMessage(TAG, new String(buffer));
                 for (byte b : buffer) {
                     logAndSendMessage(TAG, String.valueOf(b & 0xff));
@@ -550,10 +629,22 @@ public class NavigatorService extends Service {
             }
 
             if (positionSharing){
-                new updateLocationSharing().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
-                new notifyMyFootstep().execute();
+//                new updateLocationSharing().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+//                new notifyMyFootstep().execute();
+
+                new updateRefPointV2().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
             }
 
+            if (routeDirectionNeeded){
+                getRoute gt0 = new getRoute();
+                gt0.execute(String.valueOf(location.getLatitude())+","+String.valueOf(location.getLongitude()),String.valueOf(location.getLatitude()+0.00100)+","+String.valueOf(location.getLongitude()+0.00100));
+                getRoute gt1 = new getRoute();
+                gt1.execute(String.valueOf(location.getLatitude())+","+String.valueOf(location.getLongitude()),String.valueOf(location.getLatitude()+0.00100)+","+String.valueOf(location.getLongitude()-0.00100));
+                getRoute gt2 = new getRoute();
+                gt2.execute(String.valueOf(location.getLatitude())+","+String.valueOf(location.getLongitude()),String.valueOf(location.getLatitude()-0.00100)+","+String.valueOf(location.getLongitude()+0.00100));
+                getRoute gt3 = new getRoute();
+                gt3.execute(String.valueOf(location.getLatitude())+","+String.valueOf(location.getLongitude()),String.valueOf(location.getLatitude()-0.00100)+","+String.valueOf(location.getLongitude()-0.00100));
+            }
         }
     }
 
@@ -626,22 +717,17 @@ public class NavigatorService extends Service {
                     for (BluetoothGattCharacteristic characteristic : characteristics){
                         logAndSendMessage(TAG, "Characteristic: "+String.valueOf(characteristic.getUuid()));
                         if (!UUID.fromString(UART_READ).equals(characteristic.getUuid())){
+                            logAndSendMessage("TAG","It's another characteristic...");
                             continue;
+                        }else{
+                            logAndSendMessage(TAG,"readCharacteristic");
+                            final int properties = characteristic.getProperties();
+                            if ((properties | BluetoothGattCharacteristic.PROPERTY_NOTIFY)>0) {
+                                boolean enabled = gatt.setCharacteristicNotification(characteristic, true);
+//                                boolean enabled = gatt.readCharacteristic(characteristic);
+                                logAndSendMessage(TAG,String.valueOf(enabled));
+                            }
                         };
-                        final int properties = characteristic.getProperties();
-                        if ((properties | BluetoothGattCharacteristic.PROPERTY_NOTIFY)>0){
-                            gatt.setCharacteristicNotification(characteristic,true);
-
-                            ByteBuffer bb = ByteBuffer.wrap(CLIENT_CHARACTERISTIC_CONFIGURATION);
-                            long high = bb.getLong();
-                            long low  = bb.getLong();
-                            UUID uuid = new UUID(high,low);
-                            BluetoothGattDescriptor descriptor = characteristic.getDescriptor(uuid);
-                            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                            gatt.writeDescriptor(descriptor);
-                        }else {
-                            logAndSendMessage(TAG,"Properties does not support notify.");
-                        }
                     }
                 }
             }
@@ -652,12 +738,23 @@ public class NavigatorService extends Service {
             super.onCharacteristicRead(gatt, characteristic, status);
             logAndSendMessage(TAG,"onCharacteristicRead: " + status);
 
+            if (BluetoothGatt.GATT_SUCCESS == status){
+                logAndSendMessage(TAG,"GATT_SUCCESS" + status);
+            }else if(BluetoothGatt.GATT_INSUFFICIENT_AUTHENTICATION == status){
+                logAndSendMessage(TAG,"GATT_INSUFFICIENT_AUTHENTICATION" + status);
+            }else if(BluetoothGatt.GATT_INSUFFICIENT_ENCRYPTION == status){
+                logAndSendMessage(TAG,"GATT_INSUFFICIENT_ENCRYPTION" + status);
+            }else{
+                logAndSendMessage(TAG,"Other Error" + status);
+            }
         }
 
         @Override
         public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             super.onCharacteristicWrite(gatt, characteristic, status);
             logAndSendMessage(TAG,"onCharacteristicWrite: " + status);
+            boolean enabled = gatt.setCharacteristicNotification(characteristic, true);
+            logAndSendMessage(TAG,String.valueOf(enabled));
         }
 
         @Override
@@ -668,7 +765,7 @@ public class NavigatorService extends Service {
             String string = null;
             try {
                 string = new String(bytes,"UTF-8");
-                logAndSendMessage(TAG,"Receive: "+string);
+                logAndSendMessage(TAG,"occ: Received: "+string);
             } catch (UnsupportedEncodingException e) {
                 e.printStackTrace();
             }
@@ -723,12 +820,22 @@ public class NavigatorService extends Service {
                     break;
                 case F_SET_DYNAMIC_REFERENCE:
                     logAndSendMessage(TAG,"F_SET_DYNAMIC_REFERENCE");
-                    ReferenceId = intent.getExtras().getInt("id");
-                    logAndSendMessage(TAG, String.valueOf(ReferenceId));
+                    groupId = intent.getExtras().getInt("id");
+                    logAndSendMessage(TAG, String.valueOf(groupId));
+                    Message message = Message.obtain();
+                    Bundle bundle = new Bundle();
+                    bundle.putInt("group_id",groupId);
+                    message.setData(bundle);
+                    try {
+                        replyMessenger.send(message);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
                     thisHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            new getReferencePosition().execute(ReferenceId);
+                            new updateRefPointV2().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+
                             if (running){
                                 new Handler().postDelayed(this,STATUS_UPDATE_PERIOD);
                             }
@@ -749,7 +856,8 @@ public class NavigatorService extends Service {
                     thisHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            new registerLocationSharing().execute(currentLocation.getLongitude(),currentLocation.getLatitude(),Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+//                            new registerLocationSharing().execute(currentLocation.getLongitude(),currentLocation.getLatitude(),Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+                            new makeGroupV2().execute(currentLocation.getLongitude(),currentLocation.getLatitude(),Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
                         }
                     });
                     break;
@@ -795,14 +903,101 @@ public class NavigatorService extends Service {
             googleApiClient.disconnect();
         }
 
-        unbindService(serviceConnection);
-        stopService(new Intent(this,SerialService.class));
+//        unbindService(serviceConnection);
+//        stopService(new Intent(this,SerialService.class));
         stopForeground(true);
 
         LocalBroadcastManager.getInstance(this).unregisterReceiver(broadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(broadcastReceiverToken);
 
         running = false;
+    }
+
+    public class registerUserId extends AsyncTask<Double, Void,Integer>{
+        @Override
+        protected Integer doInBackground(Double... floats) {
+            HttpsURLConnection con = null;
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/register?lon=")
+                    .append(floats[0].toString())
+                    .append("&lat=")
+                    .append(floats[1].toString())
+                    .append("&bea=")
+                    .append(floats[2].toString())
+                    .append("&spd=")
+                    .append(floats[3].toString())
+                    .append("&token=")
+                    .append(token);
+            Log.i(TAG,"URL: " + new String(urlBuilder));
+            String method = "GET";
+            SharedId = 0;
+
+            try{
+                URL url = new URL(new String(urlBuilder));
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(false);
+
+                con.connect();
+
+                InputStream in = con.getInputStream();
+                String strJson = readInputStream(in);
+                userId  = new JSONObject(strJson).getInt("user_id");
+                groupId = new JSONObject(strJson).getInt("group_id");
+                Log.i(TAG,"GroupId/userid/: "+String.valueOf(groupId)+"/"+String.valueOf(userId));
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            Message message = Message.obtain();
+            Bundle bundle = new Bundle();
+            bundle.putInt("user_id",userId);
+            bundle.putInt("group_id",groupId);
+            message.setData(bundle);
+            try {
+                replyMessenger.send(message);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+
+            return userId;
+        }
+
+        @Override
+        protected void onPostExecute(Integer id) {
+            super.onPostExecute(id);
+
+            logAndSendMessage(TAG, "SharedId: "+String.valueOf(id));
+            positionSharing = true;
+            running = true;
+            SharedId = id;
+
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+                Log.i(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
     }
 
     public class registerLocationSharing extends AsyncTask<Double, Void,Integer>{
@@ -868,6 +1063,233 @@ public class NavigatorService extends Service {
             BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
             while ((st = br.readLine()) != null){
                 Log.i(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
+    }
+
+    public class registerUserIdAndAccessToGroupV2 extends AsyncTask<Double, Void,Integer>{
+        @Override
+        protected Integer doInBackground(Double... floats) {
+            HttpsURLConnection con = null;
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/register/")
+                    .append(String.valueOf(groupId))
+                    .append("?lon=")
+                    .append(floats[0].toString())
+                    .append("&lat=")
+                    .append(floats[1].toString())
+                    .append("&bea=")
+                    .append(floats[2].toString())
+                    .append("&spd=")
+                    .append(floats[3].toString())
+                    .append("&token=")
+                    .append(token);
+            Log.i(TAG,"URL: " + new String(urlBuilder));
+            String method = "POST";
+            SharedId = 0;
+
+            try{
+                URL url = new URL(new String(urlBuilder));
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(true);
+
+                con.connect();
+
+                InputStream in = con.getInputStream();
+                String strJson = readInputStream(in);
+                userId  = new JSONObject(strJson).getInt("user_id");
+                groupId = new JSONObject(strJson).getInt("group_id");
+                Log.i(TAG,String.valueOf(groupId)+"/"+String.valueOf(userId));
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return SharedId;
+        }
+
+        @Override
+        protected void onPostExecute(Integer id) {
+            super.onPostExecute(id);
+
+            logAndSendMessage(TAG, "SharedId: "+String.valueOf(id));
+            positionSharing = true;
+            running = true;
+            SharedId = id;
+
+            Message message = Message.obtain();
+            Bundle bundle = new Bundle();
+            bundle.putString("user_id",String.valueOf(id));
+            message.setData(bundle);
+            try {
+                replyMessenger.send(message);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+                Log.i(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
+    }
+
+    public class makeGroupV2 extends AsyncTask<Double, Void,Integer>{
+        @Override
+        protected Integer doInBackground(Double... doubles) {
+            HttpsURLConnection con = null;
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
+                    .append(String.valueOf(userId))
+                    .append("?lon=")
+                    .append(doubles[0].toString())
+                    .append("&lat=")
+                    .append(doubles[1].toString())
+                    .append("&bea=")
+                    .append(doubles[2].toString())
+                    .append("&spd=")
+                    .append(doubles[3].toString())
+                    .append("&token=")
+                    .append(token);
+            Log.i(TAG,"URL: " + new String(urlBuilder));
+            String method = "GET";
+
+            try{
+                URL url = new URL(new String(urlBuilder));
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(false);
+
+                con.connect();
+
+                InputStream in = con.getInputStream();
+
+                JSONObject jsonObject = new JSONObject(readInputStream(in));
+                groupId = jsonObject.getInt("group_id");
+
+                Message message = Message.obtain();
+                Bundle bundle = new Bundle();
+                bundle.putInt("group_id",groupId);
+                message.setData(bundle);
+                replyMessenger.send(message);
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+                logAndSendMessage(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
+    }
+
+    public class updateRefPointV2 extends AsyncTask<Double, Void,Integer>{
+        @Override
+        protected Integer doInBackground(Double... doubles) {
+            HttpsURLConnection con = null;
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
+                    .append(String.valueOf(groupId))
+                    .append("/")
+                    .append(String.valueOf(userId))
+                    .append("?lon=")
+                    .append(doubles[0].toString())
+                    .append("&lat=")
+                    .append(doubles[1].toString())
+                    .append("&bea=")
+                    .append(doubles[2].toString())
+                    .append("&spd=")
+                    .append(doubles[3].toString())
+                    .append("&token=")
+                    .append(token);
+            Log.i(TAG,"URL: " + new String(urlBuilder));
+            String method = "GET";
+
+            try{
+                URL url = new URL(new String(urlBuilder));
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(false);
+
+                con.connect();
+
+                InputStream in = con.getInputStream();
+
+                JSONObject json = new JSONObject(readInputStream(in));
+                refPosition.setLatitude(json.getDouble("reference_latitude"));
+                refPosition.setLongitude(json.getDouble("reference_longitude"));
+
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+                logAndSendMessage(TAG,st);
                 sb.append(st);
             }
             try {
@@ -1026,6 +1448,68 @@ public class NavigatorService extends Service {
         }
     }
 
+    public class notifyMyFootstepV2 extends AsyncTask<Double, Void,Integer>{
+        @Override
+        protected Integer doInBackground(Double... doubles) {
+            HttpsURLConnection con = null;
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/notify/")
+                    .append(String.valueOf(groupId));
+            Log.i(TAG,"URL: " + new String(urlBuilder));
+            String method = "GET";
+
+            try{
+                URL url = new URL(new String(urlBuilder));
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(false);
+
+                con.connect();
+
+                InputStream in = con.getInputStream();
+
+                JSONObject jsonObject = new JSONObject(readInputStream(in));
+                groupId = jsonObject.getInt("group_id");
+
+                Message message = Message.obtain();
+                Bundle bundle = new Bundle();
+                bundle.putInt("group_id",groupId);
+                message.setData(bundle);
+                replyMessenger.send(message);
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+                logAndSendMessage(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
+    }
+
     public class notifyMyFootstep extends AsyncTask<Void, Void,Integer>{
         @Override
         protected Integer doInBackground(Void... voids) {
@@ -1089,6 +1573,144 @@ public class NavigatorService extends Service {
             return sb.toString();
         }
 
+    }
+
+    public class getRoute extends AsyncTask<String, Void,JSONObject>{
+
+        @Override
+        protected JSONObject doInBackground(String... params) {
+            Log.i(TAG,params[0]);
+            HttpsURLConnection con = null;
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://maps.googleapis.com/maps/api/directions/json?origin=")
+                    .append(params[0])
+                    .append("&destination=")
+                    .append(params[1])
+                    .append("&mode=walking&key=%20AIzaSyAz6oV0_57kPlmxfcP2TZ2oJXAO9d3mAzw");
+            Log.i(TAG,"URL: " + new String(urlBuilder));
+            String method = "POST";
+
+            try{
+                URL url = new URL(new String(urlBuilder));
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(true);
+
+                con.connect();
+
+                InputStream in = con.getInputStream();
+                String strJson = readInputStream(in);
+//                Log.i(TAG,strJson);
+                return new JSONObject(strJson);
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(JSONObject jsonObject) {
+            super.onPostExecute(jsonObject);
+
+            try {
+                if (!Objects.equals(jsonObject.getString("status"), "OVER_QUERY_LIMIT")){
+                    double lat = Double.valueOf(jsonObject.getJSONArray("routes").getJSONObject(0).getJSONArray("legs").getJSONObject(0).getJSONArray("steps").getJSONObject(0).getJSONObject("end_location").getString("lat"));
+                    double lng = Double.valueOf(jsonObject.getJSONArray("routes").getJSONObject(0).getJSONArray("legs").getJSONObject(0).getJSONArray("steps").getJSONObject(0).getJSONObject("end_location").getString("lng"));
+                    Log.i(TAG,"Point:"+String.valueOf(lat)+","+String.valueOf(lng));
+                    route[routeId][0]=lat;
+                    route[routeId][1]=lng;
+                    Location loc = new Location("");
+                    loc.setLatitude(lat);
+                    loc.setLongitude(lng);
+                    route[routeId][2]=currentLocation.bearingTo(loc);
+                    logAndSendMessage(TAG,"Dir:"+String.valueOf(currentLocation.bearingTo(loc)));
+                    routeId = (routeId+1)%4;
+                    if (routeId==0){
+                        Log.i(TAG,"RouteArray");
+                        Log.i(TAG,route.toString());
+
+                        int NofRoute = 1;
+                        for( int i = 0;i<2;i++){
+                            for(int j=0;j<1;j++){
+                                for (int k=i;k<2;k++) {
+                                    for (int l = j; j < 2; j++) {
+                                        if (route[i][j] != route[k][l]) {
+                                            NofRoute++;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (bluetoothGatt != null && connected){
+                            Boolean successed = false;
+
+                            byte[] buffer = new byte[3];
+                            ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+                            byteBuffer.put((byte) FLAG_ROUTE_DIR);
+                            byte bRouteDir0 = 0x00;
+                            byte bRouteDir1 = 0x00;
+                            for (int i = 0;i<4;i++) {
+                                if (route[i][2] < 0) {
+                                    route[i][2] += 360;
+                                }
+                            }
+                            bRouteDir0 = (byte) ((((byte) ((int) route[0][2] * 16 / 360) & 0x0F) << 4) | (((byte) ((int) route[1][2] * 16 / 360) & 0x0F)));
+                            bRouteDir1 = (byte) ((((byte) ((int) route[2][2] * 16 / 360) & 0x0F) << 4) | (((byte) ((int) route[3][2] * 16 / 360) & 0x0F)));
+                            byteBuffer.put(bRouteDir0).put(bRouteDir1);
+
+                            logAndSendMessage(TAG, "(byte) RouteDir:"+new String(buffer));
+                            for (byte b : buffer) {
+                                logAndSendMessage(TAG, String.valueOf(b & 0xff));
+                                System.out.print(" ");
+                            }
+
+                            if (routeDirectionNeeded){
+                                bluetoothGattService = bluetoothGatt.getService(UUID.fromString(UART_SERVICE));
+                                bluetoothGattCharacteristic = bluetoothGattService.getCharacteristic(UUID.fromString(UART_WRITE));
+                                bluetoothGattCharacteristic.setValue(buffer);
+                                bluetoothGattCharacteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+                                //
+                                if (!successed){
+                                    logAndSendMessage(TAG,"Write:   "+new String(buffer));
+                                    successed = bluetoothGatt.writeCharacteristic(bluetoothGattCharacteristic);
+                                }
+                            }
+                        }
+
+                    }
+                } else {
+                    Log.e(TAG,"OVER_QUERY_LIMIT");
+                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+//                Log.i(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
     }
 
     @Override
