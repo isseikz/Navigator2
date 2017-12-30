@@ -138,13 +138,14 @@ public class MainActivity extends RxAppCompatActivity {
 
     Messenger replyMessenger = new Messenger(new HandlerReplyMsg());
 
-    Subscription scanSubscription;
-    RxBleDevice rxBleDevice;
-    boolean isConnected = false;
-    boolean found = false;
-    private PublishSubject<Void> disconnectTriggerSubject = PublishSubject.create();
-    UUID characteristicUuid;
-    private Observable<RxBleConnection> connectionObservable;
+//    Subscription scanSubscription;
+//    RxBleDevice rxBleDevice;
+//    boolean isConnected = false;
+//    boolean found = false;
+//    private PublishSubject<Void> disconnectTriggerSubject = PublishSubject.create();
+//    UUID characteristicUuid;
+//    private Observable<RxBleConnection> connectionObservable;
+//    MainApplication application;
 
     class HandlerReplyMsg extends Handler{
         @Override
@@ -251,105 +252,108 @@ public class MainActivity extends RxAppCompatActivity {
         logListAdapter.add(TAG + ": onCreate");
 
 
+
         serviceStatusSwitch = findViewById(R.id.ServiceStatusSwitch);
-//        Intent intent = new Intent(MainActivity.this,NavigatorService.class);
-//        intent.putExtra("Flag",F_SWITCH_SERVICE);
-//        startService(intent);
-//        bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
-//        serviceStatusSwitch.setChecked(true);
-//        serviceStatusSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-//            @Override
-//            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
-//                if (checked){
-//                    startService(intent);
-//                    bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
-//                }else{
-//                    unbindService(serviceConnection);
-//                    stopService(intent);
-//                }
-//            }
-//        });
+        Intent intent = new Intent(MainActivity.this,rxNavigatorService.class);
+        intent.putExtra("Flag",F_SWITCH_SERVICE);
+        startService(intent);
+        bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
+        serviceStatusSwitch.setChecked(true);
+        serviceStatusSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean checked) {
+                if (checked){
+                    startService(intent);
+                    bindService(intent,serviceConnection, Context.BIND_AUTO_CREATE);
+                }else{
+                    unbindService(serviceConnection);
+                    stopService(intent);
+                }
+            }
+        });
 
-//        connectionObservable = prepareConnectionObservable();
 
-        RxBleClient rxBleClient = RxBleClient.create(this);
-        RxBleClient.setLogLevel(RxBleLog.DEBUG);
-        scanSubscription = rxBleClient.scanBleDevices(
-                new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
-                .setCallbackType(ScanSettings.CALLBACK_TYPE_FIRST_MATCH)
-                .build(),
-                new ScanFilter.Builder()
-                .setDeviceName("UART Service")
-                .build()
-        )
-                .observeOn(AndroidSchedulers.mainThread())
-                .doOnUnsubscribe(this::clearSubscription)
-                .subscribe(rxBleScanResult -> {
-                    if (!found){
-                        Log.i(TAG,"device registered");
-                        found = true;
-                        rxBleDevice = rxBleClient.getBleDevice(rxBleScanResult.getBleDevice().getMacAddress());
-                        if (!isConnected){
-                            Log.i(TAG,"connecting...");
-
-                            connectionObservable = prepareConnectionObservable();
-
-//                            prepareConnectionObservable()
-////                                    .flatMap(RxBleConnection::discoverServices)
-////                                    .flatMap(rxBleDeviceServices -> rxBleDeviceServices.getCharacteristic(characteristicUuid))
-//                                    .observeOn(AndroidSchedulers.mainThread())
-//                                    .subscribe(
-//                                            bluetoothGattCharacteristic -> {
-//                                                Log.i(TAG,"connection has been established");
-//                                            },
-//                                            this::onConnectionFailure,
-//                                            this::onConnectionFinished
-//                                    );
-
-//                            prepareConnectionObservable()
-//                                    .flatMap(rxBleConnection -> rxBleConnection.readCharacteristic(UUID.fromString(UART_READ))
-//                                            .flatMap(bytes -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE), getInputBytes())))
-//                                    .observeOn(AndroidSchedulers.mainThread())
-//                                    .subscribe(bytes -> {
-//                                        Log.i(TAG,"Received: " + new String(bytes));
-//                                    },this::onReadFailure);
-////                                    .subscribe(bytes -> onWriteSuccess(),
-////                                            this::onWriteFailure
-//                                    );
-// うまく受信できたやつ
-                            connectionObservable
-                                    .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
-                                    .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
-                                    .flatMap(notificationObservable -> notificationObservable)
-                                    .observeOn(AndroidSchedulers.mainThread())
-                                    .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure);
-
-//                            if (rxBleDevice.getConnectionState() == RxBleConnection.RxBleConnectionState.CONNECTED){
-                                connectionObservable
-                                        .flatMap(rxBleConnection -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),"test".getBytes()))
-                                        .observeOn(AndroidSchedulers.mainThread())
-                                        .subscribe(
-                                                bytes -> onWriteSuccess(),
-                                                throwable -> {
-                                                    Log.i(TAG,"Write failure: " + throwable.getMessage());
-                                                }
-                                        );
-//                            }
-
+//        application = (MainApplication) this.getApplication();
+//
+//        RxBleClient rxBleClient = MainApplication.getRxBleClient(this);
+////        RxBleClient rxBleClient = RxBleClient.create(this);
+//        RxBleClient.setLogLevel(RxBleLog.DEBUG);
+//        scanSubscription = rxBleClient.scanBleDevices(
+//                new ScanSettings.Builder()
+//                .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+//                .setCallbackType(ScanSettings.CALLBACK_TYPE_FIRST_MATCH)
+//                .build(),
+//                new ScanFilter.Builder()
+//                .setDeviceName("UART Service")
+//                .build()
+//        )
+//                .observeOn(AndroidSchedulers.mainThread())
+//                .doOnUnsubscribe(this::clearSubscription)
+//                .subscribe(rxBleScanResult -> {
+//                    if (!found){
+//                        Log.i(TAG,"device registered");
+//                        found = true;
+//                        rxBleDevice = rxBleClient.getBleDevice(rxBleScanResult.getBleDevice().getMacAddress());
+//                        if (!isConnected){
+//                            Log.i(TAG,"connecting...");
+//
+//                            connectionObservable = prepareConnectionObservable();
+//
+////                            prepareConnectionObservable()
+//////                                    .flatMap(RxBleConnection::discoverServices)
+//////                                    .flatMap(rxBleDeviceServices -> rxBleDeviceServices.getCharacteristic(characteristicUuid))
+////                                    .observeOn(AndroidSchedulers.mainThread())
+////                                    .subscribe(
+////                                            bluetoothGattCharacteristic -> {
+////                                                Log.i(TAG,"connection has been established");
+////                                            },
+////                                            this::onConnectionFailure,
+////                                            this::onConnectionFinished
+////                                    );
+//
+////                            prepareConnectionObservable()
+////                                    .flatMap(rxBleConnection -> rxBleConnection.readCharacteristic(UUID.fromString(UART_READ))
+////                                            .flatMap(bytes -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE), getInputBytes())))
+////                                    .observeOn(AndroidSchedulers.mainThread())
+////                                    .subscribe(bytes -> {
+////                                        Log.i(TAG,"Received: " + new String(bytes));
+////                                    },this::onReadFailure);
+//////                                    .subscribe(bytes -> onWriteSuccess(),
+//////                                            this::onWriteFailure
+////                                    );
+//// うまく受信できたやつ
 //                            connectionObservable
-//                                    .flatMap(rxBleConnection -> rxBleConnection.readCharacteristic(UUID.fromString(UART_READ)))
+//                                    .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
+//                                    .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
+//                                    .flatMap(notificationObservable -> notificationObservable)
 //                                    .observeOn(AndroidSchedulers.mainThread())
-//                                    .subscribe(bytes -> {
-//                                        Log.i(TAG,"Received: " + new String(bytes));
-//                                    },this::onReadFailure);
-
-                        } else {
-                            Log.i(TAG,"Connected");
-                            isConnected = true;
-                        }
-                    }
-                }, this::onScanFailure);
+//                                    .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure);
+//
+////                            if (rxBleDevice.getConnectionState() == RxBleConnection.RxBleConnectionState.CONNECTED){
+//                                connectionObservable
+//                                        .flatMap(rxBleConnection -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),"test".getBytes()))
+//                                        .observeOn(AndroidSchedulers.mainThread())
+//                                        .subscribe(
+//                                                bytes -> onWriteSuccess(),
+//                                                throwable -> {
+//                                                    Log.i(TAG,"Write failure: " + throwable.getMessage());
+//                                                }
+//                                        );
+////                            }
+//
+////                            connectionObservable
+////                                    .flatMap(rxBleConnection -> rxBleConnection.readCharacteristic(UUID.fromString(UART_READ)))
+////                                    .observeOn(AndroidSchedulers.mainThread())
+////                                    .subscribe(bytes -> {
+////                                        Log.i(TAG,"Received: " + new String(bytes));
+////                                    },this::onReadFailure);
+//
+//                        } else {
+//                            Log.i(TAG,"Connected");
+//                            isConnected = true;
+//                        }
+//                    }
+//                }, this::onScanFailure);
 
 
 
@@ -691,160 +695,148 @@ public class MainActivity extends RxAppCompatActivity {
             return sb.toString();
         }
     }
-
-    private void clearSubscription() {
-        Log.i(TAG,"clearSubscription");
-        scanSubscription = null;
-//        resultsAdapter.clearScanResults();
-//        updateButtonUIState();
-    }
-
-    private void onScanFailure(Throwable throwable) {
-        Log.i(TAG,"onScanFailure:" + throwable.getMessage());
-        if (throwable instanceof BleScanException) {
-            handleBleScanException((BleScanException) throwable);
-        }
-    }
-
-    private void onConnectionFailure(Throwable throwable) {
-        Log.i(TAG,"onConnectionFailure: "+ throwable.getMessage());
-        //noinspection ConstantConditions
-//        Snackbar.make(findViewById(android.R.id.content), "Connection error: " + throwable, Snackbar.LENGTH_SHORT).show();
-    }
-
-    private void handleBleScanException(BleScanException bleScanException) {
-        final String text;
-
-        switch (bleScanException.getReason()) {
-            case BleScanException.BLUETOOTH_NOT_AVAILABLE:
-                text = "Bluetooth is not available";
-                break;
-            case BleScanException.BLUETOOTH_DISABLED:
-                text = "Enable bluetooth and try again";
-                break;
-            case BleScanException.LOCATION_PERMISSION_MISSING:
-                text = "On Android 6.0 location permission is required. Implement Runtime Permissions";
-                break;
-            case BleScanException.LOCATION_SERVICES_DISABLED:
-                text = "Location services needs to be enabled on Android 6.0";
-                break;
-            case BleScanException.SCAN_FAILED_ALREADY_STARTED:
-                text = "Scan with the same filters is already started";
-                break;
-            case BleScanException.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED:
-                text = "Failed to register application for bluetooth scan";
-                break;
-            case BleScanException.SCAN_FAILED_FEATURE_UNSUPPORTED:
-                text = "Scan with specified parameters is not supported";
-                break;
-            case BleScanException.SCAN_FAILED_INTERNAL_ERROR:
-                text = "Scan failed due to internal error";
-                break;
-            case BleScanException.SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES:
-                text = "Scan cannot start due to limited hardware resources";
-                break;
-            case BleScanException.UNDOCUMENTED_SCAN_THROTTLE:
-                text = "UNDOCUMENTED_SCAN_THROTTLE";
-//                text = String.format(
-//                        Locale.getDefault(),
-//                        "Android 7+ does not allow more scans. Try in %d seconds",
-//                        "Android 7+ does not allow more scans. Try in %d seconds",
-//                        secondsTill(bleScanException.getRetryDateSuggestion())
-//                );
-                break;
-            case BleScanException.UNKNOWN_ERROR_CODE:
-            case BleScanException.BLUETOOTH_CANNOT_START:
-            default:
-                text = "Unable to start scanning";
-                break;
-        }
-        Log.w("EXCEPTION", text, bleScanException);
-        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
-    }
-
-//    private boolean isConnected(){
-//        Log.i(TAG,"isConnected");
-//        return rxBleDevice.getConnectionState() == RxBleConnection.RxBleConnectionState.CONNECTED;
+//
+//    private void clearSubscription() {
+//        Log.i(TAG,"clearSubscription");
+//        scanSubscription = null;
+////        resultsAdapter.clearScanResults();
+////        updateButtonUIState();
 //    }
-
-    private rx.Observable<RxBleConnection> prepareConnectionObservable(){
-        return rxBleDevice
-                .establishConnection(true)
-                .takeUntil(disconnectTriggerSubject)
-                .compose(bindUntilEvent(PAUSE))
-                .compose(new ConnectionSharingAdapter());
-    }
-
-    private void onConnectionFinished() {
-        Log.i(TAG,"onConnectionFinished");
-        prepareConnectionObservable()
-                .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ))
-                                .flatMap(bytes -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),getInputBytes())))
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(bytes -> onWriteSuccess(),
-                                this::onWriteFailure
-                        );
-
-    }
-
-    private void onReadFailure(Throwable throwable) {
-        String text = "onReadFailure:" +  throwable.getMessage();
-        Log.e(TAG,text);
-        logListAdapter.add(text);
-        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
-
-
-        //noinspection ConstantConditions
-//        Snackbar.make(findViewById(R.id.main), "Read error: " + throwable, Snackbar.LENGTH_SHORT).show();
-    }
-
-    private void onWriteFailure(Throwable throwable){
-        String text = "onWriteFailure:" +  throwable.getMessage();
-        Log.e(TAG,text);
-        logListAdapter.add(text);
-        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
-    }
-    private void onWriteSuccess(){
-        String text = "onWriteSuccess";
-        logListAdapter.add(text);
-        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
-        Log.i(TAG,text);
-    }
-
-    private byte[] getInputBytes() {
-        return HexString.hexToBytes("Test");
-    }
-
-    private void notificationHasBeenSetUp(){
-        String text = "notificatiion has beem setup";
-        Log.i(TAG,text);
-        logListAdapter.add(text);
-        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
-
-    }
-
-    private void onNotificationReceived(byte[] bytes) {
-        String text = "notification received:" +  new String(bytes);
-        Log.i(TAG,text);
-        logListAdapter.add(text);
-        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
-        //noinspection ConstantConditions
-//        Snackbar.make(findViewById(R.id.main), "Change: " + HexString.bytesToHex(bytes), Snackbar.LENGTH_SHORT).show();
-    }
-
-    private void onNotificationSetupFailure(Throwable throwable) {
-        String text = "notificatiion failure:" +  throwable.getMessage();
-        Log.e(TAG,text);
-        logListAdapter.add(text);
-        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
-
-        connectionObservable
-                .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
-                .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
-                .flatMap(notificationObservable -> notificationObservable)
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure);
-        //noinspection ConstantConditions
-//        Snackbar.make(findViewById(R.id.main), "Notifications error: " + throwable, Snackbar.LENGTH_SHORT).show();
-    }
+//
+//    private void onScanFailure(Throwable throwable) {
+//        Log.i(TAG,"onScanFailure:" + throwable.getMessage());
+//        if (throwable instanceof BleScanException) {
+//            handleBleScanException((BleScanException) throwable);
+//        }
+//    }
+//
+//    private void onConnectionFailure(Throwable throwable) {
+//        Log.i(TAG,"onConnectionFailure: "+ throwable.getMessage());
+//        //noinspection ConstantConditions
+////        Snackbar.make(findViewById(android.R.id.content), "Connection error: " + throwable, Snackbar.LENGTH_SHORT).show();
+//    }
+//
+//    private void handleBleScanException(BleScanException bleScanException) {
+//        final String text;
+//
+//        switch (bleScanException.getReason()) {
+//            case BleScanException.BLUETOOTH_NOT_AVAILABLE:
+//                text = "Bluetooth is not available";
+//                break;
+//            case BleScanException.BLUETOOTH_DISABLED:
+//                text = "Enable bluetooth and try again";
+//                break;
+//            case BleScanException.LOCATION_PERMISSION_MISSING:
+//                text = "On Android 6.0 location permission is required. Implement Runtime Permissions";
+//                break;
+//            case BleScanException.LOCATION_SERVICES_DISABLED:
+//                text = "Location services needs to be enabled on Android 6.0";
+//                break;
+//            case BleScanException.SCAN_FAILED_ALREADY_STARTED:
+//                text = "Scan with the same filters is already started";
+//                break;
+//            case BleScanException.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED:
+//                text = "Failed to register application for bluetooth scan";
+//                break;
+//            case BleScanException.SCAN_FAILED_FEATURE_UNSUPPORTED:
+//                text = "Scan with specified parameters is not supported";
+//                break;
+//            case BleScanException.SCAN_FAILED_INTERNAL_ERROR:
+//                text = "Scan failed due to internal error";
+//                break;
+//            case BleScanException.SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES:
+//                text = "Scan cannot start due to limited hardware resources";
+//                break;
+//            case BleScanException.UNDOCUMENTED_SCAN_THROTTLE:
+//                text = "UNDOCUMENTED_SCAN_THROTTLE";
+////                text = String.format(
+////                        Locale.getDefault(),
+////                        "Android 7+ does not allow more scans. Try in %d seconds",
+////                        "Android 7+ does not allow more scans. Try in %d seconds",
+////                        secondsTill(bleScanException.getRetryDateSuggestion())
+////                );
+//                break;
+//            case BleScanException.UNKNOWN_ERROR_CODE:
+//            case BleScanException.BLUETOOTH_CANNOT_START:
+//            default:
+//                text = "Unable to start scanning";
+//                break;
+//        }
+//        Log.w("EXCEPTION", text, bleScanException);
+//        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+//    }
+//
+//
+//    private rx.Observable<RxBleConnection> prepareConnectionObservable(){
+//        return rxBleDevice
+//                .establishConnection(false)
+//                .takeUntil(disconnectTriggerSubject)
+//                .compose(bindUntilEvent(PAUSE))
+//                .compose(new ConnectionSharingAdapter());
+//    }
+//
+//    private void onConnectionFinished() {
+//        Log.i(TAG,"onConnectionFinished");
+//        prepareConnectionObservable()
+//                .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ))
+//                                .flatMap(bytes -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),getInputBytes())))
+//                .observeOn(AndroidSchedulers.mainThread())
+//                .subscribe(bytes -> onWriteSuccess(),
+//                                this::onWriteFailure
+//                        );
+//
+//    }
+//
+//    private void onReadFailure(Throwable throwable) {
+//        String text = "onReadFailure:" +  throwable.getMessage();
+//        Log.e(TAG,text);
+//        logListAdapter.add(text);
+//        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+//    }
+//
+//    private void onWriteFailure(Throwable throwable){
+//        String text = "onWriteFailure:" +  throwable.getMessage();
+//        Log.e(TAG,text);
+//        logListAdapter.add(text);
+//        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+//    }
+//    private void onWriteSuccess(){
+//        String text = "onWriteSuccess";
+//        logListAdapter.add(text);
+//        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+//        Log.i(TAG,text);
+//    }
+//
+//    private byte[] getInputBytes() {
+//        return HexString.hexToBytes("Test");
+//    }
+//
+//    private void notificationHasBeenSetUp(){
+//        String text = "notificatiion has beem setup";
+//        Log.i(TAG,text);
+//        logListAdapter.add(text);
+//        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+//
+//    }
+//
+//    private void onNotificationReceived(byte[] bytes) {
+//        String text = "notification received:" +  new String(bytes);
+//        Log.i(TAG,text);
+//        logListAdapter.add(text);
+//        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+//    }
+//
+//    private void onNotificationSetupFailure(Throwable throwable) {
+//        String text = "notificatiion failure:" +  throwable.getMessage();
+//        Log.e(TAG,text);
+//        logListAdapter.add(text);
+//        logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+//
+//        connectionObservable
+//                .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
+//                .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
+//                .flatMap(notificationObservable -> notificationObservable)
+//                .observeOn(AndroidSchedulers.mainThread())
+//                .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure);
+//    }
 }

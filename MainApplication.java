@@ -2,6 +2,7 @@ package com.example.issei.navigator2;
 
 import android.app.Application;
 import android.content.Context;
+import android.util.Log;
 
 import com.polidea.rxandroidble.RxBleClient;
 import com.polidea.rxandroidble.internal.RxBleLog;
@@ -11,9 +12,11 @@ import com.polidea.rxandroidble.internal.RxBleLog;
  */
 
 public class MainApplication extends Application{
+    static final String TAG = "Navigator2";
     private RxBleClient rxBleClient;
 
     public static RxBleClient getRxBleClient(Context context) {
+        Log.d(TAG,"MainApplication/getBleClient");
         MainApplication application = (MainApplication) context.getApplicationContext();
         return application.rxBleClient;
     }
@@ -21,6 +24,7 @@ public class MainApplication extends Application{
     @Override
     public void onCreate() {
         super.onCreate();
+        Log.d(TAG,"MainApplication/onCreate");
         rxBleClient = RxBleClient.create(this);
         RxBleClient.setLogLevel(RxBleLog.DEBUG);
     }
