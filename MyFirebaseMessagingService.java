@@ -17,6 +17,7 @@ import android.util.Log;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,9 +38,12 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(RemoteMessage remoteMessage) {
         super.onMessageReceived(remoteMessage);
-        Log.i(TAG, String.valueOf(remoteMessage.getData()));
+        Log.i(TAG, "FCM: " + String.valueOf(remoteMessage.getData()));
 
         Intent intent = new Intent("FCM");
+        intent.putExtra("data",remoteMessage.getData().get("flag"));
+//        intent.putExtra("user_id",remoteMessage.getData().get("user_id") != null ? remoteMessage.getData().get("user_id") : "4444" );
+
         localBroadcastManager.sendBroadcast(intent);
     }
 

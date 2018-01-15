@@ -4,6 +4,7 @@ import android.app.Application;
 import android.content.Context;
 import android.util.Log;
 
+import com.google.android.gms.common.api.GoogleApiClient;
 import com.polidea.rxandroidble.RxBleClient;
 import com.polidea.rxandroidble.internal.RxBleLog;
 

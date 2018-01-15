@@ -1,23 +1,13 @@
 package com.example.issei.navigator2;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothGatt;
-import android.bluetooth.BluetoothGattCallback;
-import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattDescriptor;
-import android.bluetooth.BluetoothGattService;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanFilter;
-import android.bluetooth.le.ScanResult;
-import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -26,6 +16,10 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.location.Location;
 import android.os.AsyncTask;
 import android.os.Binder;
@@ -56,8 +50,8 @@ import com.polidea.rxandroidble.exceptions.BleScanException;
 import com.polidea.rxandroidble.internal.RxBleLog;
 import com.polidea.rxandroidble.utils.ConnectionSharingAdapter;
 import com.trello.rxlifecycle.RxLifecycle;
-import com.trello.rxlifecycle.android.ActivityEvent;
 import com.trello.rxlifecycle.android.RxLifecycleAndroid;
+import com.trello.rxlifecycle.components.support.RxAppCompatActivity;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -69,15 +63,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
-import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -85,15 +79,14 @@ import rx.Observable;
 import rx.Subscription;
 import rx.android.schedulers.AndroidSchedulers;
 import rx.subjects.PublishSubject;
-
-import static com.trello.rxlifecycle.android.ActivityEvent.PAUSE;
+import rx.subscriptions.CompositeSubscription;
 
 /**
  * Created by issei on 2017/11/17.
  */
 
 public class rxNavigatorService extends Service {
-    private static final String TAG = rxNavigatorService.class.getName();
+    private static final String TAG = "Navigator2";
     String toastText = "";
     String token = FirebaseInstanceId.getInstance().getToken();
     String refToken;
@@ -122,6 +115,8 @@ public class rxNavigatorService extends Service {
     static final int FLAG_WALKSTEP = 3;
     static final int FLAG_ROUTE_DIR = 4;
 
+    static final int FLAG_INTR_STATE = 0;
+
     boolean routeDirectionNeeded = false;
 
     private Context context = this;
@@ -136,28 +131,21 @@ public class rxNavigatorService extends Service {
     NotificationManager notificationManager;
 
     //    Variables for Bluetooth
-//    RxBleClient rxBleClient;
-//    private BluetoothAdapter bluetoothAdapter;
-//    private BluetoothLeScanner bluetoothLeScanner;
-//    private BluetoothGatt bluetoothGatt;
     private ScanCallback scanCallback;
     static final int SCAN_PERIOD = 10000;
-    static final byte[] CLIENT_CHARACTERISTIC_CONFIGURATION = new byte[]{0x29,0x02};
+    static final byte[] CLIENT_CHARACTERISTIC_CONFIGURATION = new byte[]{0x29, 0x02};
     static final String UART_SERVICE = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
     static final String UART_WRITE = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
     static final String UART_READ = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
-//    BluetoothGattService bluetoothGattService;
-//    BluetoothGattCharacteristic bluetoothGattCharacteristic;
 
     private GoogleApiClient googleApiClient;
     private Location currentLocation;
     private Location refPosition = new Location("");
     private Location YNU = new Location("");
-    private float fBearing=180;
+    private float fBearing = 180;
     private float bearing = 0;
     private boolean positionSharing = false;
     int SharedId;
-    int ReferenceId;
 
     double[][] route = new double[4][3];
     int routeId = 0;
@@ -165,6 +153,7 @@ public class rxNavigatorService extends Service {
     private boolean isBound = false;
     private static final byte COMMAND_INITIALIZE = 0;
 
+    CompositeSubscription compositeSubscription;
     Subscription scanSubscription;
     RxBleDevice rxBleDevice;
     boolean isConnected = false;
@@ -173,63 +162,60 @@ public class rxNavigatorService extends Service {
     private Observable<RxBleConnection> connectionObservable;
     MainApplication application;
 
-//    Runnable bleScanRunnable = new Runnable() {
-//        @Override
-//        public void run() {
-//            if (scanning) {
-//                scanning = false;
-//                logAndSendMessage(TAG,"Device not found...");
-//                bluetoothLeScanner.stopScan(scanCallback);
-//                if (running){
-////                    startBleScan();
-//                }
-////                    stopThisService();
-//            }
-//        }
-//    };
+    SensorManager sensorManager;
+    Sensor sensor;
+    float sensorValueX;
+    float sensorValueY;
+    float sensorValueZ;
+    int sensorAccuracy;
+    int sensorCnt = 0;
+
 
     Runnable showStatusRunnable = new Runnable() {
         @Override
         public void run() {
 //            sendToast("Status: Scanning=" + String.valueOf(scanning) + ", Connected=" + String.valueOf(connected));
-            if (running){
+            if (running) {
                 thisHandler.postDelayed(this, STATUS_UPDATE_PERIOD);
             }
 
         }
     };
 
-    public class LocalBinder extends Binder{
-        rxNavigatorService getService(){
-         return rxNavigatorService.this;
+    public class LocalBinder extends Binder {
+        rxNavigatorService getService() {
+            return rxNavigatorService.this;
         }
     }
 
-    class IncomingHandler extends Handler{
+    class IncomingHandler extends Handler {
         @Override
         public void handleMessage(Message msg) {
-            if (msg.getData().getString("command") != null){
+            if (msg.getData().getString("command") != null) {
                 String strCommand = msg.getData().getString("command");
-                if (Objects.equals(strCommand, "notifyFootStep")){
-//                    notifyMyFootstepV2 notify = new notifyMyFootstepV2();
-//                    notify.execute();
-                } else if(Objects.equals(strCommand,"Route:ON")){
-                    logAndSendMessage(TAG,"Route:ON");
+                if (Objects.equals(strCommand, "notifyFootStep")) {
+                    logAndSendMessage(TAG,"notify my footstep");
+                    notifyMyFootstepV2 notify = new notifyMyFootstepV2();
+                    Integer integers[] = {0,0};
+                    notify.execute(integers);
+                } else if (Objects.equals(strCommand, "Route:ON")) {
+                    logAndSendMessage(TAG, "Route:ON");
                     routeDirectionNeeded = true;
-                } else if(Objects.equals(strCommand,"Route:OFF")){
+                } else if (Objects.equals(strCommand, "Route:OFF")) {
                     routeDirectionNeeded = false;
-                    logAndSendMessage(TAG,"Route:OFF");
+                    logAndSendMessage(TAG, "Route:OFF");
                 } else {
                 }
             }
-            if (Objects.equals(msg.getData().getString("command"), "notifyFootStep")){
-                notifyMyFootstepV2 notify = new notifyMyFootstepV2();
-                notify.execute();
-            }
-            if (msg.getData().getString("user_id")!=null){
+//            if (Objects.equals(msg.getData().getString("command"), "notifyFootStep")) {
+//                notifyMyFootstepV2 notify = new notifyMyFootstepV2();
+//                notify.execute();
+//            }
+            if (msg.getData().getString("user_id") != null) {
                 userId = Integer.parseInt(msg.getData().getString("user_id"));
-            };
-            if (msg.what == MESSAGE){
+            }
+            ;
+            if (msg.what == MESSAGE) {
                 Bundle bundle = msg.getData();
                 replyMessenger = msg.replyTo;
 //                logAndSendMessage(TAG, String.valueOf(bundle));
@@ -267,10 +253,10 @@ public class rxNavigatorService extends Service {
         }
     };
 
-    public void sendMessage(String key, String value){
-        if (isBound){
+    public void sendMessage(String key, String value) {
+        if (isBound) {
             try {
-                Message message = Message.obtain(null, SerialService.CODE_COMMAND,0,0);
+                Message message = Message.obtain(null, SerialService.CODE_COMMAND, 0, 0);
                 Bundle bundle = new Bundle();
                 bundle.putString(key, value);
                 message.setData(bundle);
@@ -282,10 +268,10 @@ public class rxNavigatorService extends Service {
         }
     }
 
-    public void sendByteMessage(String key, Byte value){
-        if (isBound){
+    public void sendByteMessage(String key, Byte value) {
+        if (isBound) {
             try {
-                Message message = Message.obtain(null, SerialService.CODE_COMMAND,0,0);
+                Message message = Message.obtain(null, SerialService.CODE_COMMAND, 0, 0);
                 Bundle bundle = new Bundle();
                 bundle.putByte(key, value);
                 message.setData(bundle);
@@ -297,22 +283,23 @@ public class rxNavigatorService extends Service {
         }
     }
 
-    public void logAndSendMessage(String... texts){
-        Log.i(texts[0],texts[1]);
+    public void logAndSendMessage(String... texts) {
+        Log.i(texts[0], texts[1]);
         sendMessageToActivity(texts[1]);
     }
 
     private void sendMessageToActivity(Object... objects) {
-        if (replyMessenger != null){
+        if (replyMessenger != null) {
             Message message = new Message();
             StringBuilder stringBuilder = new StringBuilder();
-            for (int i=0;i < objects.length;i++){
+            for (int i = 0; i < objects.length; i++) {
                 stringBuilder.append(objects[i]);
-                if (i==0){
+                if (i == 0) {
                     stringBuilder.append(": ");
-                } else if (i!=(objects.length-1)){
+                } else if (i != (objects.length - 1)) {
                     stringBuilder.append(", ");
-                };
+                }
+                ;
             }
             String text = new String(stringBuilder);
             message.obj = text;
@@ -331,33 +318,25 @@ public class rxNavigatorService extends Service {
     private BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            sendByteMessage("command",SerialService.COMMAND_WALKSTEP);
-            Log.i(TAG, "Push Received! Vib!");
+//            sendByteMessage("command", SerialService.COMMAND_WALKSTEP);
+            Log.i(TAG, "RX Push Received!");
+
+            Log.i(TAG, "Value:" + String.valueOf(intent.getStringExtra("data")));
+
+            String strData = intent.getStringExtra("data");
+
+//            Log.i(TAG,"user_id: " + intent.getStringExtra("user_id"));
 
 //            TODO bluetooth
-//            if (bluetoothGatt != null && connected){
-//                Boolean successed = false;
-//
-//                byte[] buffer = new byte[12];
-//                ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-//                byteBuffer.put((byte) FLAG_WALKSTEP);
-//                logAndSendMessage(TAG, new String(buffer));
-//                for (byte b : buffer) {
-//                    logAndSendMessage(TAG, String.valueOf(b & 0xff));
-//                    System.out.print(" ");
-//                }
-//
-//
-//                bluetoothGattService = bluetoothGatt.getService(UUID.fromString(UART_SERVICE));
-//                bluetoothGattCharacteristic = bluetoothGattService.getCharacteristic(UUID.fromString(UART_WRITE));
-//                bluetoothGattCharacteristic.setValue(buffer);
-//                bluetoothGattCharacteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-////
-//                if (!successed){
-//                    logAndSendMessage(TAG,"Write:   "+new String(buffer));
-//                    successed = bluetoothGatt.writeCharacteristic(bluetoothGattCharacteristic);
-//                }
-//            }
+            byte[] buffer = new byte[5];
+            ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+            byteBuffer.put((byte) FLAG_WALKSTEP)
+                    .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(0))) & 0xff))
+                    .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(1))) & 0xff))
+                    .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(2))) & 0xff))
+                    .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(3))) & 0xff));
+
+            sendBle(buffer);
         }
     };
 
@@ -365,7 +344,7 @@ public class rxNavigatorService extends Service {
         @Override
         public void onReceive(Context context, Intent intent) {
             token = intent.getStringExtra("token");
-            logAndSendMessage(TAG, "Token is changed: "+token);
+            logAndSendMessage(TAG, "Token is changed: " + token);
         }
     };
 
@@ -380,14 +359,14 @@ public class rxNavigatorService extends Service {
     private BroadcastReceiver broadcastReceiverLog = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            logAndSendMessage(TAG,intent.getStringExtra("text"));
+            logAndSendMessage(TAG, intent.getStringExtra("text"));
         }
     };
 
     private BroadcastReceiver broadcastReceiverFSBtn = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            logAndSendMessage(TAG,"FootStep send");
+            logAndSendMessage(TAG, "FootStep send");
             new notifyMyFootstep().execute();
         }
     };
@@ -395,17 +374,17 @@ public class rxNavigatorService extends Service {
     private BroadcastReceiver broadcastReceiverBLEBond = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            logAndSendMessage(TAG,intent.getStringExtra("ACTION_BOND_STATE_CHANGED"));
-            Log.i(TAG,intent.getExtras().toString());
-            switch (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE,BluetoothDevice.ERROR)){
+            logAndSendMessage(TAG, intent.getStringExtra("ACTION_BOND_STATE_CHANGED"));
+            Log.i(TAG, intent.getExtras().toString());
+            switch (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)) {
                 case BluetoothDevice.BOND_NONE:
-                    logAndSendMessage(TAG,intent.getStringExtra("BOND_NONE"));
+                    logAndSendMessage(TAG, intent.getStringExtra("BOND_NONE"));
                     break;
                 case BluetoothDevice.BOND_BONDED:
-                    logAndSendMessage(TAG,intent.getStringExtra("BOND_BONDED"));
+                    logAndSendMessage(TAG, intent.getStringExtra("BOND_BONDED"));
                     break;
                 case BluetoothDevice.BOND_BONDING:
-                    logAndSendMessage(TAG,intent.getStringExtra("BOND_BONDING"));
+                    logAndSendMessage(TAG, intent.getStringExtra("BOND_BONDING"));
                     break;
                 default:
                     break;
@@ -419,25 +398,22 @@ public class rxNavigatorService extends Service {
         logAndSendMessage(TAG, "onCreate");
         toastText = "onCreate";
 
-        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiver,new IntentFilter("FCM"));
-        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverToken,new IntentFilter("FMS"));
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiver, new IntentFilter("FCM"));
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverToken, new IntentFilter("FMS"));
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverSerial, new IntentFilter("Serial"));
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverLog, new IntentFilter("Log"));
-        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverBLEBond,new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED));
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiverBLEBond, new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED));
 
 
         logAndSendMessage(TAG, "MainLooper: " + String.valueOf(Looper.getMainLooper().getClass()));
 
-//        sendToast("onCreate");
 
 //        TWELITE制御用
 //        Intent intent = new Intent(this,SerialService.class);
 //        startService(intent);
 //        bindService(intent,serviceConnection,BIND_AUTO_CREATE);
 
-
-//        TODO ble
-//        startBleScan();
+        compositeSubscription = new CompositeSubscription();
 
         bleHandler = new Handler();
 
@@ -447,81 +423,59 @@ public class rxNavigatorService extends Service {
         RxBleClient.setLogLevel(RxBleLog.DEBUG);
         scanSubscription = rxBleClient.scanBleDevices(
                 new com.polidea.rxandroidble.scan.ScanSettings.Builder()
-                        .setScanMode(com.polidea.rxandroidble.scan.ScanSettings.SCAN_MODE_BALANCED)
-                        .setCallbackType(com.polidea.rxandroidble.scan.ScanSettings.CALLBACK_TYPE_FIRST_MATCH)
+//                        .setScanMode(com.polidea.rxandroidble.scan.ScanSettings.SCAN_MODE_BALANCED)
+//                        .setCallbackType(com.polidea.rxandroidble.scan.ScanSettings.CALLBACK_TYPE_FIRST_MATCH)
                         .build(),
                 new com.polidea.rxandroidble.scan.ScanFilter.Builder()
                         .setDeviceName("UART Service")
                         .build()
         )
                 .observeOn(AndroidSchedulers.mainThread())
-                .doOnUnsubscribe(this::clearSubscription)
+//                .doOnUnsubscribe(this::clearSubscription)
                 .subscribe(rxBleScanResult -> {
-                    if (!found){
-                        Log.i(TAG,"device registered");
+                    if (!found) {
+                        Log.i(TAG, "device registered");
                         found = true;
                         rxBleDevice = rxBleClient.getBleDevice(rxBleScanResult.getBleDevice().getMacAddress());
-                        if (!isConnected){
-                            Log.i(TAG,"connecting...");
+                        if (!isConnected) {
+                            Log.i(TAG, "connecting...");
 
                             connectionObservable = prepareConnectionObservable();
 
-//                            prepareConnectionObservable()
-////                                    .flatMap(RxBleConnection::discoverServices)
-////                                    .flatMap(rxBleDeviceServices -> rxBleDeviceServices.getCharacteristic(characteristicUuid))
-//                                    .observeOn(AndroidSchedulers.mainThread())
-//                                    .subscribe(
-//                                            bluetoothGattCharacteristic -> {
-//                                                Log.i(TAG,"connection has been established");
-//                                            },
-//                                            this::onConnectionFailure,
-//                                            this::onConnectionFinished
-//                                    );
+                            compositeSubscription.add(
+                                    connectionObservable
+                                            .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
+                                            .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
+                                            .flatMap(notificationObservable -> notificationObservable)
+                                            .observeOn(AndroidSchedulers.mainThread())
+                                            .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure)
+                            );
 
-//                            prepareConnectionObservable()
-//                                    .flatMap(rxBleConnection -> rxBleConnection.readCharacteristic(UUID.fromString(UART_READ))
-//                                            .flatMap(bytes -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE), getInputBytes())))
-//                                    .observeOn(AndroidSchedulers.mainThread())
-//                                    .subscribe(bytes -> {
-//                                        Log.i(TAG,"Received: " + new String(bytes));
-//                                    },this::onReadFailure);
-////                                    .subscribe(bytes -> onWriteSuccess(),
-////                                            this::onWriteFailure
-//                                    );
-// うまく受信できたやつ
-                            connectionObservable
-                                    .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
-                                    .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
-                                    .flatMap(notificationObservable -> notificationObservable)
-                                    .observeOn(AndroidSchedulers.mainThread())
-                                    .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure);
+
+
 
 //                            if (rxBleDevice.getConnectionState() == RxBleConnection.RxBleConnectionState.CONNECTED){
-                            connectionObservable
-                                    .flatMap(rxBleConnection -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),"test".getBytes()))
+
+                            compositeSubscription.add(connectionObservable
+                                    .flatMap(rxBleConnection -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE), "test".getBytes()))
                                     .observeOn(AndroidSchedulers.mainThread())
                                     .subscribe(
                                             bytes -> onWriteSuccess(),
                                             throwable -> {
-                                                Log.i(TAG,"Write failure: " + throwable.getMessage());
+                                                Log.i(TAG, "Write failure: " + throwable.getMessage());
                                             }
-                                    );
-//                            }
+                                    ));
 
-//                            connectionObservable
-//                                    .flatMap(rxBleConnection -> rxBleConnection.readCharacteristic(UUID.fromString(UART_READ)))
-//                                    .observeOn(AndroidSchedulers.mainThread())
-//                                    .subscribe(bytes -> {
-//                                        Log.i(TAG,"Received: " + new String(bytes));
-//                                    },this::onReadFailure);
+
 
                         } else {
-                            Log.i(TAG,"Connected");
+                            Log.i(TAG, "Connected");
                             isConnected = true;
                         }
                     }
                 }, this::onScanFailure);
 
+        compositeSubscription.add(scanSubscription);
 
         if (googleApiClient == null) {
             googleApiClient = new GoogleApiClient.Builder(this)
@@ -538,26 +492,27 @@ public class rxNavigatorService extends Service {
 
         refPosition.setLatitude(35.4741875);
         refPosition.setLongitude(139.5932654);
+
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        List<Sensor> sensorListMag = sensorManager.getSensorList(Sensor.TYPE_MAGNETIC_FIELD);
+        List<Sensor> sensorListAcc = sensorManager.getSensorList(Sensor.TYPE_ACCELEROMETER);
+        if (sensorListMag.size() > 0){
+            sensor = sensorListMag.get(0);
+        } else {
+            sensor = null;
+
+        }
     }
 
     private class GoogleApiCallbacks implements GoogleApiClient.ConnectionCallbacks {
 
+        @SuppressLint("MissingPermission")
         @Override
         public void onConnected(@Nullable Bundle bundle) {
             LocationRequest locationRequest = new LocationRequest();
             locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
             locationRequest.setInterval(5000);
 
-            if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                // TODO: Consider calling
-                //    ActivityCompat#requestPermissions
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
-                return;
-            }
             LocationServices.FusedLocationApi.requestLocationUpdates(googleApiClient, locationRequest, new GoogleLocationListener());
         }
 
@@ -610,7 +565,10 @@ public class rxNavigatorService extends Service {
                 logAndSendMessage(TAG,"Bearing to YNU: " + bearing);
             }
 
-            int intSpeedBody = (int) currentLocation.getSpeed();
+            float fspeed = currentLocation.getSpeed()*10;
+            logAndSendMessage(TAG, "Travel    Vef.   : " + String.valueOf(fspeed));
+            int intSpeedBody = (int) fspeed;
+            logAndSendMessage(TAG, "Travel    Vel.   : " + String.valueOf(intSpeedBody));
             if (intSpeedBody > 256){intSpeedBody = 256;};
             byte bSpeedBody = (byte) (intSpeedBody & 0xFF);
 
@@ -625,100 +583,39 @@ public class rxNavigatorService extends Service {
             // 現在地の移動方向
             if (fBearing < 0){fBearing += 360;};
 
-            byte bBearings   = (byte) ((byte) (((byte)(((int)(fBearing / 360 * 16))& 0x0f)) << 4) |((byte) ((int)(bearing /360 * 16))& 0x0f));
+//            byte bBearings   = (byte) ((byte) (((byte)(((int)(fBearing / 360 * 16))& 0x0f)) << 4) |((byte) ((int)(bearing /360 * 16))& 0x0f));
+            byte bTravelBearing   = (byte)(((int)(fBearing / 360 * 256))& 0xff);
+            byte bReferenceBearing =(byte)(((int)(bearing / 360 * 256))& 0xff);
             byte bRefSpeed   = (byte) ((byte) (intSpeedRef) & 0xFF);
             byte bRefBearing = (byte) ((int)(bearingRef / 360 * 16));
+//            logAndSendMessage(TAG, "Travel    Dir.   : " + String.valueOf(fBearing));
+//            logAndSendMessage(TAG, "Reference Dir.   : " + String.valueOf(bearing));
+//            logAndSendMessage(TAG, "0x(TDir RefDir)  : " + String.valueOf(bBearings));
             logAndSendMessage(TAG, "Travel    Dir.   : " + String.valueOf(fBearing));
-            logAndSendMessage(TAG, "Reference Dir.   : " + String.valueOf(bearing));
-            logAndSendMessage(TAG, "0x(TDir RefDir)  : " + String.valueOf(bBearings));
             logAndSendMessage(TAG, "Ref Point Vel.   : " + String.valueOf(bRefSpeed));
             logAndSendMessage(TAG, "Ref P Travel Dir.: " + String.valueOf(bRefBearing));
 
             int intLatitude  = (int) (location.getLatitude()*100000);
             int intLongitude = (int) (location.getLongitude()*100000);
 
+            byte[] buffer = new byte[14];
+            ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+            byteBuffer.put((byte) FLAG_LOCATION_BEARING)
+                    .putInt(intLongitude)//経度
+                    .putInt(intLatitude) //緯度
+//                    .put(bBearings)      //現在値の進行方向・現在地から目標地点への方向
+                    .put(bTravelBearing) //現在値の進行方向
+                    .put(bRefSpeed)      //目標地点の移動速さ
+                    .put(bRefBearing)    //目標地点の移動方角
+                    .put(bSpeedBody)    //現在値の移動速さ
+                    .put(bReferenceBearing);
 
-            if (rxBleDevice!= null && rxBleDevice.getConnectionState() == RxBleConnection.RxBleConnectionState.CONNECTED){
+            sendBle(buffer);
 
-                byte[] buffer = new byte[13];
-                ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-                byteBuffer.put((byte) FLAG_LOCATION_BEARING)
-                        .putInt(intLongitude)//経度
-                        .putInt(intLatitude) //緯度
-                        .put(bBearings)      //現在値の進行方向・現在地から目標地点への方向
-                        .put(bRefSpeed)      //目標地点の移動速さ
-                        .put(bRefBearing)    //目標地点の移動方角
-                        .put(bSpeedBody);    //現在値の移動速さ
-
-                logAndSendMessage(TAG, new String(buffer));
-                for (byte b : buffer) {
-                    logAndSendMessage(TAG, String.valueOf(b & 0xff));
-                    System.out.print(" ");
-                }
-
-                connectionObservable
-                        .flatMap(rxBleConnection -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),buffer))
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(
-                                bytes -> onWriteSuccess(),
-                                throwable -> {
-                                    Log.i(TAG,"Write failure: " + throwable.getMessage());
-                                }
-                        );
+            if(routeDirectionNeeded){
+                new getRoute().execute();
             }
-
-
-            // TODO ble
-//            logAndSendMessage(TAG,"GATT: "+(bluetoothGatt!=null)+" Connected: " + String.valueOf(connected ));
-//            if (bluetoothGatt != null && connected){
-//                Boolean successed = false;
-//
-//                byte[] buffer = new byte[13];
-//                ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-//                byteBuffer.put((byte) FLAG_LOCATION_BEARING)
-//                        .putInt(intLongitude)//経度
-//                        .putInt(intLatitude) //緯度
-//                        .put(bBearings)      //現在値の進行方向・現在地から目標地点への方向
-//                        .put(bRefSpeed)      //目標地点の移動速さ
-//                        .put(bRefBearing)    //目標地点の移動方角
-//                        .put(bSpeedBody);    //現在値の移動速さ
-//
-//                logAndSendMessage(TAG, new String(buffer));
-//                for (byte b : buffer) {
-//                    logAndSendMessage(TAG, String.valueOf(b & 0xff));
-//                    System.out.print(" ");
-//                }
-
-//                TODO  ble
-//                bluetoothGattService = bluetoothGatt.getService(UUID.fromString(UART_SERVICE));
-//                bluetoothGattCharacteristic = bluetoothGattService.getCharacteristic(UUID.fromString(UART_WRITE));
-//                bluetoothGattCharacteristic.setValue(buffer);
-//                bluetoothGattCharacteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-////
-//                if (!successed){
-//                    logAndSendMessage(TAG,"Write:   "+new String(buffer));
-//                    successed = bluetoothGatt.writeCharacteristic(bluetoothGattCharacteristic);
-//                }
-            }
-//
-//            if (positionSharing){
-////                new updateLocationSharing().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
-////                new notifyMyFootstep().execute();
-//
-//                new updateRefPointV2().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
-//            }
-//
-//            if (routeDirectionNeeded){
-//                getRoute gt0 = new getRoute();
-//                gt0.execute(String.valueOf(location.getLatitude())+","+String.valueOf(location.getLongitude()),String.valueOf(location.getLatitude()+0.00100)+","+String.valueOf(location.getLongitude()+0.00100));
-//                getRoute gt1 = new getRoute();
-//                gt1.execute(String.valueOf(location.getLatitude())+","+String.valueOf(location.getLongitude()),String.valueOf(location.getLatitude()+0.00100)+","+String.valueOf(location.getLongitude()-0.00100));
-//                getRoute gt2 = new getRoute();
-//                gt2.execute(String.valueOf(location.getLatitude())+","+String.valueOf(location.getLongitude()),String.valueOf(location.getLatitude()-0.00100)+","+String.valueOf(location.getLongitude()+0.00100));
-//                getRoute gt3 = new getRoute();
-//                gt3.execute(String.valueOf(location.getLatitude())+","+String.valueOf(location.getLongitude()),String.valueOf(location.getLatitude()-0.00100)+","+String.valueOf(location.getLongitude()-0.00100));
-//            }
-//        }
+        }
     }
 
     private void sendToast(String text){
@@ -769,9 +666,12 @@ public class rxNavigatorService extends Service {
                     thisHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            new updateRefPointV2().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+                            if (googleApiClient.isConnected()){
+                                new updateRefPointV2().execute(currentLocation.getLongitude(), currentLocation.getLatitude(), Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+                            }
 
                             if (running){
+                                logAndSendMessage(TAG,"Reference received");
                                 new Handler().postDelayed(this,STATUS_UPDATE_PERIOD);
                             }
                         }
@@ -791,11 +691,22 @@ public class rxNavigatorService extends Service {
                     thisHandler.post(new Runnable() {
                         @Override
                         public void run() {
+                            logAndSendMessage(TAG,"Reference UPdated");
 //                            new registerLocationSharing().execute(currentLocation.getLongitude(),currentLocation.getLatitude(),Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
-                            new makeGroupV2().execute(currentLocation.getLongitude(),currentLocation.getLatitude(),Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+                            if (googleApiClient.isConnected()){
+                                new makeGroupV2().execute(currentLocation.getLongitude(),currentLocation.getLatitude(),Double.parseDouble(String.valueOf(currentLocation.getBearing())),Double.parseDouble(String.valueOf(currentLocation.getSpeed())));
+                            }
                         }
                     });
                     break;
+                case MainActivity.F_SEND_COMPASS:
+                    logAndSendMessage(TAG,"F_SEND_COMPASS");
+                    if (sensor != null){
+                        sensorManager.registerListener(sensorEventListener,sensor,SensorManager.SENSOR_DELAY_FASTEST);
+                    } else {
+                        logAndSendMessage(TAG,"I don't have E-Compass");
+                    }
+
             }
         }
 
@@ -819,6 +730,9 @@ public class rxNavigatorService extends Service {
         super.onDestroy();
         logAndSendMessage(TAG,"onDestroy");
         sendToast("BLE Service is destroyed.");
+
+        compositeSubscription.clear();
+//        clearSubscription();
 //        TODO ble
 //        if (bleHandler!=null){
 //            bleHandler.removeCallbacksAndMessages(bleScanRunnable);
@@ -1384,15 +1298,26 @@ public class rxNavigatorService extends Service {
         }
     }
 
-    public class notifyMyFootstepV2 extends AsyncTask<Double, Void,Integer>{
+    public class notifyMyFootstepV2 extends AsyncTask<Integer, Void,Integer>{
         @Override
-        protected Integer doInBackground(Double... doubles) {
+        protected Integer doInBackground(Integer... integers) {
             HttpsURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
             urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/notify/")
-                    .append(String.valueOf(groupId));
+                    .append(String.valueOf(groupId)).append("/")
+                    .append(String.valueOf(userId));
             Log.i(TAG,"URL: " + new String(urlBuilder));
             String method = "GET";
+
+            urlBuilder.append("?flag=");
+            switch (integers[0]){
+                case FLAG_INTR_STATE:
+                    urlBuilder.append(integers[0] == 0 ? "0000" : integers[0]);
+                    break;
+                default:
+                    urlBuilder.append("0000");
+            }
+            logAndSendMessage(TAG,"URL: " +urlBuilder.toString());
 
             try{
                 URL url = new URL(new String(urlBuilder));
@@ -1590,19 +1515,21 @@ public class rxNavigatorService extends Service {
 //                        if (bluetoothGatt != null && connected){
 //                            Boolean successed = false;
 //
-//                            byte[] buffer = new byte[3];
-//                            ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-//                            byteBuffer.put((byte) FLAG_ROUTE_DIR);
-//                            byte bRouteDir0 = 0x00;
-//                            byte bRouteDir1 = 0x00;
-//                            for (int i = 0;i<4;i++) {
-//                                if (route[i][2] < 0) {
-//                                    route[i][2] += 360;
-//                                }
-//                            }
-//                            bRouteDir0 = (byte) ((((byte) ((int) route[0][2] * 16 / 360) & 0x0F) << 4) | (((byte) ((int) route[1][2] * 16 / 360) & 0x0F)));
-//                            bRouteDir1 = (byte) ((((byte) ((int) route[2][2] * 16 / 360) & 0x0F) << 4) | (((byte) ((int) route[3][2] * 16 / 360) & 0x0F)));
-//                            byteBuffer.put(bRouteDir0).put(bRouteDir1);
+                            byte[] buffer = new byte[3];
+                            ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+                            byteBuffer.put((byte) FLAG_ROUTE_DIR);
+                            byte bRouteDir0 = 0x00;
+                            byte bRouteDir1 = 0x00;
+                            for (int i = 0;i<4;i++) {
+                                if (route[i][2] < 0) {
+                                    route[i][2] += 360;
+                                }
+                            }
+                            bRouteDir0 = (byte) ((((byte) ((int) route[0][2] * 16 / 360) & 0x0F) << 4) | (((byte) ((int) route[1][2] * 16 / 360) & 0x0F)));
+                            bRouteDir1 = (byte) ((((byte) ((int) route[2][2] * 16 / 360) & 0x0F) << 4) | (((byte) ((int) route[3][2] * 16 / 360) & 0x0F)));
+                            byteBuffer.put(bRouteDir0).put(bRouteDir1);
+
+                            sendBle(buffer);
 //
 //                            logAndSendMessage(TAG, "(byte) RouteDir:"+new String(buffer));
 //                            for (byte b : buffer) {
@@ -1702,6 +1629,8 @@ public class rxNavigatorService extends Service {
     private void clearSubscription() {
         Log.i(TAG,"clearSubscription");
         scanSubscription = null;
+//        Subscription subscription = (Subscription) connectionObservable;
+//        subscription.unsubscribe();
 //        resultsAdapter.clearScanResults();
 //        updateButtonUIState();
     }
@@ -1752,12 +1681,6 @@ public class rxNavigatorService extends Service {
                 break;
             case BleScanException.UNDOCUMENTED_SCAN_THROTTLE:
                 text = "UNDOCUMENTED_SCAN_THROTTLE";
-//                text = String.format(
-//                        Locale.getDefault(),
-//                        "Android 7+ does not allow more scans. Try in %d seconds",
-//                        "Android 7+ does not allow more scans. Try in %d seconds",
-//                        secondsTill(bleScanException.getRetryDateSuggestion())
-//                );
                 break;
             case BleScanException.UNKNOWN_ERROR_CODE:
             case BleScanException.BLUETOOTH_CANNOT_START:
@@ -1771,10 +1694,11 @@ public class rxNavigatorService extends Service {
 
 
     private rx.Observable<RxBleConnection> prepareConnectionObservable(){
+//private Subscription prepareConnectionObservable(){
+        Log.i(TAG,"prepareConnectionObservable");
         return rxBleDevice
-                .establishConnection(false)
+                .establishConnection(true)
                 .takeUntil(disconnectTriggerSubject)
-//                .compose(RxLifecycleAndroid.bind(onDestroy()))
                 .compose(new ConnectionSharingAdapter());
     }
 
@@ -1810,7 +1734,7 @@ public class rxNavigatorService extends Service {
     }
 
     private void notificationHasBeenSetUp(){
-        String text = "notificatiion has beem setup";
+        String text = "notification has been setup";
         logAndSendMessage(TAG,text);
 
     }
@@ -1818,22 +1742,119 @@ public class rxNavigatorService extends Service {
     private void onNotificationReceived(byte[] bytes) {
         String text = "notification received:" +  new String(bytes);
         logAndSendMessage(TAG,text);
+        Pattern p = Pattern.compile("(IntrState:)(\\d+)");
+        Matcher m = p.matcher(new String(bytes));
+        logAndSendMessage(TAG,new String(bytes));
+        if (m.find()){
+            logAndSendMessage(TAG,"Found!!!");
+            logAndSendMessage(TAG,"IntrState:" + m.group(2));
+            logAndSendMessage(TAG,"State" + m.group(2));
+            Integer integers[] = {FLAG_INTR_STATE,Integer.parseInt(m.group(2))} ;
+            new notifyMyFootstepV2().execute(integers);
+        }
     }
 
     private void onNotificationSetupFailure(Throwable throwable) {
-        String text = "notificatiion failure:" +  throwable.getMessage();
+        String text = "notification failure:" +  throwable.getMessage();
         logAndSendMessage(TAG,text);
 
-        connectionObservable
+//        compositeSubscription.add(scanSubscription);
+
+        compositeSubscription.add(
+                connectionObservable
                 .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
                 .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
                 .flatMap(notificationObservable -> notificationObservable)
                 .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure);
+                .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure)
+//                        .subscribe(this::onNotificationReceived)
+        );
     }
 
     private void runOnUiThread(Runnable runnable){
         bleHandler.post(runnable);
     }
+
+    private boolean sendBle(byte[] buffer){
+        if (rxBleDevice!= null && rxBleDevice.getConnectionState() == RxBleConnection.RxBleConnectionState.CONNECTED){
+
+            logAndSendMessage(TAG, new String(buffer));
+            for (byte b : buffer) {
+                logAndSendMessage(TAG, String.valueOf(b & 0xff));
+                System.out.print(" ");
+            }
+            compositeSubscription.add(
+                    connectionObservable
+                            .flatMap(rxBleConnection -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),buffer))
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .subscribe(
+                                    bytes -> onWriteSuccess(),
+                                    throwable -> {
+                                        Log.i(TAG,"Write failure: " + throwable.getMessage());
+                                    }
+                            )
+            );
+            return true;
+        }else{
+            logAndSendMessage(TAG,"Something will be sent, but connection is disable.");
+            return false;
+        }
+    }
+
+    private void recconectBle(){
+        compositeSubscription.clear();
+        compositeSubscription.add(scanSubscription);
+    }
     //    RxAndroidBLE関連のメソッドおわり
+
+    //    センサー取得用イベントリスナ
+
+    SensorEventListener sensorEventListener = new SensorEventListener() {
+
+        @Override
+        public void onSensorChanged(SensorEvent sensorEvent) {
+            sensorValueX = sensorEvent.values[0];
+            sensorValueY = sensorEvent.values[1];
+            sensorValueZ = sensorEvent.values[2];
+            sensorAccuracy = sensorEvent.accuracy;
+            if (sensorCnt++ > 100){
+                sensorCnt = 0;
+                logAndSendMessage(TAG,"ValueX: " + String.valueOf(sensorValueX));
+                logAndSendMessage(TAG,"ValueX: " + String.valueOf(sensorValueY));
+                logAndSendMessage(TAG,"Accuracy: " + String.valueOf(sensorAccuracy));
+            };
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int i) {
+            float compassBearing = (float) ((float) Math.atan2(sensorValueY,sensorValueX) * 180 / - Math.PI);
+//            float compassBearing = sensorManager.get
+
+            logAndSendMessage(TAG,"ValueX: " + String.valueOf(sensorValueX));
+            logAndSendMessage(TAG,"ValueY: " + String.valueOf(sensorValueY));
+
+            logAndSendMessage(TAG,"Compass: " + String.valueOf(compassBearing));
+            logAndSendMessage(TAG,"Accuracy: " + String.valueOf(sensorAccuracy));
+
+            if (i == SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM){
+                logAndSendMessage(TAG,"Accuracy OK: ");
+
+                compassBearing = compassBearing > 0 ? compassBearing : compassBearing + 360 ;
+                byte bCompassBearing =(byte)(((int)(compassBearing / 360 * 256))& 0xff);
+
+                byte[] buffer = new byte[2];
+                ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+                byteBuffer.put((byte) MainActivity.F_SEND_COMPASS);
+                byteBuffer.put(bCompassBearing);
+
+                sendBle(buffer);
+                if (sensorManager!= null){
+                    sensorManager.unregisterListener(this);
+                }
+            }
+
+        }
+    };
+    //    センサー取得用イベントリスナおわり
+
 }
