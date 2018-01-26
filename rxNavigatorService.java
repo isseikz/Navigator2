@@ -1,20 +1,17 @@
 package com.example.issei.navigator2;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.le.ScanCallback;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
-import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -32,7 +29,6 @@ import android.os.Messenger;
 import android.os.RemoteException;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 import android.widget.Toast;
@@ -43,15 +39,7 @@ import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 import com.google.firebase.iid.FirebaseInstanceId;
-import com.polidea.rxandroidble.RxBleClient;
-import com.polidea.rxandroidble.RxBleConnection;
-import com.polidea.rxandroidble.RxBleDevice;
-import com.polidea.rxandroidble.exceptions.BleScanException;
-import com.polidea.rxandroidble.internal.RxBleLog;
-import com.polidea.rxandroidble.utils.ConnectionSharingAdapter;
-import com.trello.rxlifecycle.RxLifecycle;
-import com.trello.rxlifecycle.android.RxLifecycleAndroid;
-import com.trello.rxlifecycle.components.support.RxAppCompatActivity;
+
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -67,19 +55,12 @@ import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import javax.net.ssl.HttpsURLConnection;
 
-import rx.Observable;
-import rx.Subscription;
-import rx.android.schedulers.AndroidSchedulers;
-import rx.subjects.PublishSubject;
-import rx.subscriptions.CompositeSubscription;
 
 /**
  * Created by issei on 2017/11/17.
@@ -100,7 +81,10 @@ public class rxNavigatorService extends Service {
     MyFirebaseInstanceIdService myFirebaseInstanceIdService;
 
     static final int MESSAGE = 1;
+    static final int ADD_LOG = 2;
+    static final int BLE_DATA = 3;
     Messenger messenger = new Messenger(new IncomingHandler());
+    Messenger bleServiceMessenger;
     Messenger replyMessenger;
     private final IBinder iBinder = new LocalBinder();
 
@@ -130,13 +114,6 @@ public class rxNavigatorService extends Service {
 
     NotificationManager notificationManager;
 
-    //    Variables for Bluetooth
-    private ScanCallback scanCallback;
-    static final int SCAN_PERIOD = 10000;
-    static final byte[] CLIENT_CHARACTERISTIC_CONFIGURATION = new byte[]{0x29, 0x02};
-    static final String UART_SERVICE = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
-    static final String UART_WRITE = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
-    static final String UART_READ = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 
     private GoogleApiClient googleApiClient;
     private Location currentLocation;
@@ -151,15 +128,9 @@ public class rxNavigatorService extends Service {
     int routeId = 0;
 
     private boolean isBound = false;
+    private boolean isBleServiceBound = false;
     private static final byte COMMAND_INITIALIZE = 0;
 
-    CompositeSubscription compositeSubscription;
-    Subscription scanSubscription;
-    RxBleDevice rxBleDevice;
-    boolean isConnected = false;
-    boolean found = false;
-    private PublishSubject<Void> disconnectTriggerSubject = PublishSubject.create();
-    private Observable<RxBleConnection> connectionObservable;
     MainApplication application;
 
     SensorManager sensorManager;
@@ -207,19 +178,27 @@ public class rxNavigatorService extends Service {
                 } else {
                 }
             }
-//            if (Objects.equals(msg.getData().getString("command"), "notifyFootStep")) {
-//                notifyMyFootstepV2 notify = new notifyMyFootstepV2();
-//                notify.execute();
-//            }
+
             if (msg.getData().getString("user_id") != null) {
                 userId = Integer.parseInt(msg.getData().getString("user_id"));
             }
-            ;
-            if (msg.what == MESSAGE) {
-                Bundle bundle = msg.getData();
-                replyMessenger = msg.replyTo;
+
+            switch (msg.what){
+                case MESSAGE:
+                    Bundle bundle = msg.getData();
+                    replyMessenger = msg.replyTo;
 //                logAndSendMessage(TAG, String.valueOf(bundle));
+                    break;
+                case ADD_LOG:
+                    logAndSendMessage(MainApplication.TAG,msg.getData().getString("text"));
+                    break;
+                case BLE_DATA:
+                    byte[] data = msg.getData().getByteArray("data");
+                    if (data != null){
+                        logAndSendMessage(MainApplication.TAG,new String(data));
+                    }
             }
+
         }
     }
 
@@ -407,75 +386,8 @@ public class rxNavigatorService extends Service {
 
         logAndSendMessage(TAG, "MainLooper: " + String.valueOf(Looper.getMainLooper().getClass()));
 
-
-//        TWELITE制御用
-//        Intent intent = new Intent(this,SerialService.class);
-//        startService(intent);
-//        bindService(intent,serviceConnection,BIND_AUTO_CREATE);
-
-        compositeSubscription = new CompositeSubscription();
-
-        bleHandler = new Handler();
-
         application = (MainApplication) this.getApplication();
-
-        RxBleClient rxBleClient = application.getRxBleClient(this);
-        RxBleClient.setLogLevel(RxBleLog.DEBUG);
-        scanSubscription = rxBleClient.scanBleDevices(
-                new com.polidea.rxandroidble.scan.ScanSettings.Builder()
-//                        .setScanMode(com.polidea.rxandroidble.scan.ScanSettings.SCAN_MODE_BALANCED)
-//                        .setCallbackType(com.polidea.rxandroidble.scan.ScanSettings.CALLBACK_TYPE_FIRST_MATCH)
-                        .build(),
-                new com.polidea.rxandroidble.scan.ScanFilter.Builder()
-                        .setDeviceName("UART Service")
-                        .build()
-        )
-                .observeOn(AndroidSchedulers.mainThread())
-//                .doOnUnsubscribe(this::clearSubscription)
-                .subscribe(rxBleScanResult -> {
-                    if (!found) {
-                        Log.i(TAG, "device registered");
-                        found = true;
-                        rxBleDevice = rxBleClient.getBleDevice(rxBleScanResult.getBleDevice().getMacAddress());
-                        if (!isConnected) {
-                            Log.i(TAG, "connecting...");
-
-                            connectionObservable = prepareConnectionObservable();
-
-                            compositeSubscription.add(
-                                    connectionObservable
-                                            .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
-                                            .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
-                                            .flatMap(notificationObservable -> notificationObservable)
-                                            .observeOn(AndroidSchedulers.mainThread())
-                                            .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure)
-                            );
-
-
-
-
-//                            if (rxBleDevice.getConnectionState() == RxBleConnection.RxBleConnectionState.CONNECTED){
-
-                            compositeSubscription.add(connectionObservable
-                                    .flatMap(rxBleConnection -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE), "test".getBytes()))
-                                    .observeOn(AndroidSchedulers.mainThread())
-                                    .subscribe(
-                                            bytes -> onWriteSuccess(),
-                                            throwable -> {
-                                                Log.i(TAG, "Write failure: " + throwable.getMessage());
-                                            }
-                                    ));
-
-
-
-                        } else {
-                            Log.i(TAG, "Connected");
-                            isConnected = true;
-                        }
-                    }
-                }, this::onScanFailure);
-
-        compositeSubscription.add(scanSubscription);
+        startBleService();
 
         if (googleApiClient == null) {
             googleApiClient = new GoogleApiClient.Builder(this)
@@ -627,13 +539,6 @@ public class rxNavigatorService extends Service {
         });
     }
 
-    private void stopThisService(){
-        sendToast("The BLE Service is cancelled");
-        logAndSendMessage(TAG,"Navigator Service is now stopping...");
-
-        stopSelf();
-    }
-
     @Override
     public void onStart(Intent intent, int startId) {
         super.onStart(intent, startId);
@@ -731,12 +636,7 @@ public class rxNavigatorService extends Service {
         logAndSendMessage(TAG,"onDestroy");
         sendToast("BLE Service is destroyed.");
 
-        compositeSubscription.clear();
-//        clearSubscription();
-//        TODO ble
-//        if (bleHandler!=null){
-//            bleHandler.removeCallbacksAndMessages(bleScanRunnable);
-//        }
+        stopBleSubscription();
         if (thisHandler!=null){
             thisHandler.removeCallbacksAndMessages(showStatusRunnable);
         }
@@ -746,15 +646,9 @@ public class rxNavigatorService extends Service {
         if (mainHandler!=null){
             mainHandler.removeCallbacksAndMessages(null);
         }
-//        if (bluetoothGatt != null){
-//            bluetoothGatt.close();
-//        }
         if (googleApiClient.isConnected()){
             googleApiClient.disconnect();
         }
-
-//        unbindService(serviceConnection);
-//        stopService(new Intent(this,SerialService.class));
         stopForeground(true);
 
         LocalBroadcastManager.getInstance(this).unregisterReceiver(broadcastReceiver);
@@ -1621,191 +1515,59 @@ public class rxNavigatorService extends Service {
         return messenger.getBinder();
     }
 
-
-
-//    RxAndroidBLE関連のメソッド
-
-
-    private void clearSubscription() {
-        Log.i(TAG,"clearSubscription");
-        scanSubscription = null;
-//        Subscription subscription = (Subscription) connectionObservable;
-//        subscription.unsubscribe();
-//        resultsAdapter.clearScanResults();
-//        updateButtonUIState();
-    }
-
-    private void onScanFailure(Throwable throwable) {
-        Log.i(TAG,"onScanFailure:" + throwable.getMessage());
-        if (throwable instanceof BleScanException) {
-            handleBleScanException((BleScanException) throwable);
+    ServiceConnection bleServiceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+            bleServiceMessenger = new Messenger(iBinder);
+            isBleServiceBound = true;
+            Message message = Message.obtain(null,BLEService.MESSENGER_REG_NAV,0,0);
+            message.replyTo = messenger;
+            try {
+                bleServiceMessenger.send(message);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
         }
-    }
 
-    private void onConnectionFailure(Throwable throwable) {
-        Log.i(TAG,"onConnectionFailure: "+ throwable.getMessage());
-        //noinspection ConstantConditions
-//        Snackbar.make(findViewById(android.R.id.content), "Connection error: " + throwable, Snackbar.LENGTH_SHORT).show();
-    }
-
-    private void handleBleScanException(BleScanException bleScanException) {
-        final String text;
-
-        switch (bleScanException.getReason()) {
-            case BleScanException.BLUETOOTH_NOT_AVAILABLE:
-                text = "Bluetooth is not available";
-                break;
-            case BleScanException.BLUETOOTH_DISABLED:
-                text = "Enable bluetooth and try again";
-                break;
-            case BleScanException.LOCATION_PERMISSION_MISSING:
-                text = "On Android 6.0 location permission is required. Implement Runtime Permissions";
-                break;
-            case BleScanException.LOCATION_SERVICES_DISABLED:
-                text = "Location services needs to be enabled on Android 6.0";
-                break;
-            case BleScanException.SCAN_FAILED_ALREADY_STARTED:
-                text = "Scan with the same filters is already started";
-                break;
-            case BleScanException.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED:
-                text = "Failed to register application for bluetooth scan";
-                break;
-            case BleScanException.SCAN_FAILED_FEATURE_UNSUPPORTED:
-                text = "Scan with specified parameters is not supported";
-                break;
-            case BleScanException.SCAN_FAILED_INTERNAL_ERROR:
-                text = "Scan failed due to internal error";
-                break;
-            case BleScanException.SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES:
-                text = "Scan cannot start due to limited hardware resources";
-                break;
-            case BleScanException.UNDOCUMENTED_SCAN_THROTTLE:
-                text = "UNDOCUMENTED_SCAN_THROTTLE";
-                break;
-            case BleScanException.UNKNOWN_ERROR_CODE:
-            case BleScanException.BLUETOOTH_CANNOT_START:
-            default:
-                text = "Unable to start scanning";
-                break;
+        @Override
+        public void onServiceDisconnected(ComponentName componentName) {
+            bleServiceMessenger = null;
+            isBleServiceBound = false;
         }
-        Log.w("EXCEPTION", text, bleScanException);
-        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+    };
+
+
+    private void startBleService(){
+        Intent intent = new Intent(getApplicationContext(),BLEService.class);
+        bindService(intent,bleServiceConnection, Context.BIND_AUTO_CREATE);
     }
 
-
-    private rx.Observable<RxBleConnection> prepareConnectionObservable(){
-//private Subscription prepareConnectionObservable(){
-        Log.i(TAG,"prepareConnectionObservable");
-        return rxBleDevice
-                .establishConnection(true)
-                .takeUntil(disconnectTriggerSubject)
-                .compose(new ConnectionSharingAdapter());
+    private void stopBleSubscription(){
+        unbindService(bleServiceConnection);
     }
 
-    private void onConnectionFinished() {
-        Log.i(TAG,"onConnectionFinished");
-        prepareConnectionObservable()
-                .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ))
-                        .flatMap(bytes -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),getInputBytes())))
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(bytes -> onWriteSuccess(),
-                        this::onWriteFailure
-                );
-
-    }
-
-    private void onReadFailure(Throwable throwable) {
-        String text = "onReadFailure:" +  throwable.getMessage();
-        logAndSendMessage(TAG,text);
-
-    }
-
-    private void onWriteFailure(Throwable throwable){
-        String text = "onWriteFailure:" +  throwable.getMessage();
-        logAndSendMessage(TAG,text);
-    }
-    private void onWriteSuccess(){
-        String text = "onWriteSuccess";
-        logAndSendMessage(TAG,text);
-    }
-
-    private byte[] getInputBytes() {
-        return HexString.hexToBytes("Test");
-    }
-
-    private void notificationHasBeenSetUp(){
-        String text = "notification has been setup";
-        logAndSendMessage(TAG,text);
-
-    }
-
-    private void onNotificationReceived(byte[] bytes) {
-        String text = "notification received:" +  new String(bytes);
-        logAndSendMessage(TAG,text);
-        Pattern p = Pattern.compile("(IntrState:)(\\d+)");
-        Matcher m = p.matcher(new String(bytes));
-        logAndSendMessage(TAG,new String(bytes));
-        if (m.find()){
-            logAndSendMessage(TAG,"Found!!!");
-            logAndSendMessage(TAG,"IntrState:" + m.group(2));
-            logAndSendMessage(TAG,"State" + m.group(2));
-            Integer integers[] = {FLAG_INTR_STATE,Integer.parseInt(m.group(2))} ;
-            new notifyMyFootstepV2().execute(integers);
-        }
-    }
-
-    private void onNotificationSetupFailure(Throwable throwable) {
-        String text = "notification failure:" +  throwable.getMessage();
-        logAndSendMessage(TAG,text);
-
-//        compositeSubscription.add(scanSubscription);
-
-        compositeSubscription.add(
-                connectionObservable
-                .flatMap(rxBleConnection -> rxBleConnection.setupNotification(UUID.fromString(UART_READ)))
-                .doOnNext(notificationObservable -> runOnUiThread(this::notificationHasBeenSetUp))
-                .flatMap(notificationObservable -> notificationObservable)
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(this::onNotificationReceived, this::onNotificationSetupFailure)
-//                        .subscribe(this::onNotificationReceived)
-        );
-    }
-
-    private void runOnUiThread(Runnable runnable){
-        bleHandler.post(runnable);
-    }
 
     private boolean sendBle(byte[] buffer){
-        if (rxBleDevice!= null && rxBleDevice.getConnectionState() == RxBleConnection.RxBleConnectionState.CONNECTED){
 
-            logAndSendMessage(TAG, new String(buffer));
-            for (byte b : buffer) {
-                logAndSendMessage(TAG, String.valueOf(b & 0xff));
-                System.out.print(" ");
+        if (isBleServiceBound){
+            Log.i(MainApplication.TAG,"send to BLEService: " + new String(buffer));
+            Message message = Message.obtain(null,BLEService.MESSENGER_BLE_SEND,1,1);
+            message.what = BLEService.MESSENGER_BLE_SEND;
+            message.replyTo = replyMessenger;
+
+            Bundle bundle = new Bundle();
+            bundle.putByteArray("sendBleData",buffer);
+
+            message.setData(bundle);
+            try {
+                bleServiceMessenger.send(message);
+                return true;
+            } catch (RemoteException e) {
+                e.printStackTrace();
             }
-            compositeSubscription.add(
-                    connectionObservable
-                            .flatMap(rxBleConnection -> rxBleConnection.writeCharacteristic(UUID.fromString(UART_WRITE),buffer))
-                            .observeOn(AndroidSchedulers.mainThread())
-                            .subscribe(
-                                    bytes -> onWriteSuccess(),
-                                    throwable -> {
-                                        Log.i(TAG,"Write failure: " + throwable.getMessage());
-                                    }
-                            )
-            );
-            return true;
-        }else{
-            logAndSendMessage(TAG,"Something will be sent, but connection is disable.");
-            return false;
         }
+        return false;
     }
-
-    private void recconectBle(){
-        compositeSubscription.clear();
-        compositeSubscription.add(scanSubscription);
-    }
-    //    RxAndroidBLE関連のメソッドおわり
 
     //    センサー取得用イベントリスナ
 
@@ -1856,5 +1618,78 @@ public class rxNavigatorService extends Service {
         }
     };
     //    センサー取得用イベントリスナおわり
+
+    //  リードスイッチ振動共有
+
+    // byte[]型のリードスイッチデータを時系列データに変換する
+    private ArrayList<Byte> dataToSwitchLog(byte[] dataArr){
+        ArrayList<Byte> byteArrayList = new ArrayList<>();
+        for (byte  data : dataArr) {
+            int duration = data & 0x00001111;
+            for (int cnt = 0;cnt<duration;cnt++){
+                byteArrayList.add((byte) (data & 0x11110000));
+            }
+        }
+        return byteArrayList;
+    }
+
+    // 2つの時系列データをフィルタ処理する
+    static final int AND_METHOD = 1;
+    static final int OR_METHOD = 2;
+    static final int NOR_METHOD = 3;
+    static final int NAND_METHOD = 4;
+    static final int XOR_METHOD = 5;
+
+    private ArrayList<Byte> filterBetween(ArrayList<Byte> arrayList1, ArrayList<Byte> arrayList2, int method){
+        int size1 = arrayList1.size();
+        int size2 = arrayList2.size();
+        int length = 0;
+        // 2つのログのサイズ調整（小さい方は繰り返す）
+        if (size1 > size2){
+            for (int cnt = 0;cnt< size1 -size2;cnt++){
+                arrayList2.add(arrayList2.get(cnt));
+            }
+            length = size1;
+        }else if(size1 < size2){
+            for (int cnt = 0;cnt< size2 -size1;cnt++){
+                arrayList1.add(arrayList1.get(cnt));
+            }
+            length = size2;
+        }else{
+            length = size1;
+        }
+
+        ArrayList<Byte> filteredArray = new ArrayList<Byte>();
+        for (int cnt = 0;cnt<length;cnt++){
+            switch (method){
+                case AND_METHOD:
+                    filteredArray.add((byte) (arrayList1.get(cnt) & arrayList2.get(cnt)));
+                    break;
+                case OR_METHOD:
+                    filteredArray.add((byte) (arrayList1.get(cnt) | arrayList2.get(cnt)));
+                    break;
+                case XOR_METHOD:
+                    filteredArray.add((byte) (arrayList1.get(cnt) ^ arrayList2.get(cnt)));
+                    break;
+                default:
+                    filteredArray.add((byte) 0);
+            }
+        }
+        return filteredArray;
+    }
+
+    // ArrayList<Byte> をbyte[]に変換する
+    private byte[] arrayListByteToByteArray(ArrayList<Byte> arrayList){
+        int size = arrayList.size();
+        byte[] byteArray = new byte[size];
+        for (int i = 0;i<size;i++){
+            byteArray[i] = arrayList.get(i);
+        }
+        return byteArray;
+    }
+
+
+
+    // リードスイッチ振動共有おわり
 
 }

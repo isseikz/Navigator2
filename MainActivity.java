@@ -132,6 +132,8 @@ public class MainActivity extends AppCompatActivity {
 
     String refToken;
 
+    boolean autoScroll;
+
     ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
@@ -157,8 +159,11 @@ public class MainActivity extends AppCompatActivity {
                 String receivedMessage = msg.obj.toString();
 //            String receivedMessage = msg.getData()
                 Log.i(TAG,receivedMessage);
-                logListAdapter.add(receivedMessage);
-                logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+
+                if (autoScroll){
+                    logListAdapter.add(receivedMessage);
+                    logArea.smoothScrollToPosition(logListAdapter.getCount()-1);
+                }
 
                 if (receivedMessage.matches("SharedId:.*")){
                     Pattern p = Pattern.compile("[0-9]");
@@ -367,6 +372,7 @@ public class MainActivity extends AppCompatActivity {
         logListAdapter = new ArrayAdapter<String>(this,R.layout.log_area);
         logArea.setAdapter(logListAdapter);
         logListAdapter.add(TAG + ": onCreate");
+        autoScroll = false;
 
         if (ContextCompat.checkSelfPermission(MainActivity.this, ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             if (ActivityCompat.shouldShowRequestPermissionRationale(MainActivity.this,Manifest.permission.ACCESS_FINE_LOCATION)){
@@ -382,6 +388,18 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        autoScroll = true;
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        autoScroll = false;
     }
 
     @Override

@@ -1,11 +1,13 @@
 package com.example.issei.navigator2;
 
 import android.app.Application;
+import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.util.Log;
 
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.polidea.rxandroidble.RxBleClient;
+import com.polidea.rxandroidble.RxBleDevice;
 import com.polidea.rxandroidble.internal.RxBleLog;
 
 /**
@@ -15,6 +17,8 @@ import com.polidea.rxandroidble.internal.RxBleLog;
 public class MainApplication extends Application{
     static final String TAG = "Navigator2";
     private RxBleClient rxBleClient;
+    private BluetoothAdapter bluetoothAdapter;
+
 
     public static RxBleClient getRxBleClient(Context context) {
         Log.d(TAG,"MainApplication/getBleClient");
@@ -26,7 +30,7 @@ public class MainApplication extends Application{
     public void onCreate() {
         super.onCreate();
         Log.d(TAG,"MainApplication/onCreate");
-        rxBleClient = RxBleClient.create(this);
-        RxBleClient.setLogLevel(RxBleLog.DEBUG);
+//        rxBleClient = RxBleClient.create(this);
+//        RxBleClient.setLogLevel(RxBleLog.DEBUG);
     }
 }
