@@ -265,6 +265,7 @@ public class BLEService extends Service {
         }
     }
 
+//    1バイト目を取り除いたデータをbyte[]で返す
     public static byte[] bleData(byte[] data){
         int len = data.length;
         byte[] byteArray = new byte[len-1];
@@ -274,6 +275,7 @@ public class BLEService extends Service {
         return byteArray;
     }
 
+//    1バイト目を取り除いたデータをByte[]で返す
     public static Byte[] bleDataByte(byte[] data){
         int len = data.length;
         Byte[] byteArray = new Byte[len - 1];

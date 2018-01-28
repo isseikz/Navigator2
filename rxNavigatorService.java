@@ -51,6 +51,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
@@ -202,8 +203,17 @@ public class rxNavigatorService extends Service {
                         logAndSendMessage(MainApplication.TAG,Integer.toHexString(data[0]));
                         switch (flag){
                             case (byte) 0x49:  // "I" (リードスイッチ読取)
-                            Byte[] byteList = BLEService.bleDataByte(data);
+                            myReedLog = dataToSwitchLog(BLEService.bleData(data));
+
+//                            フィルタ処理したデータを送信する
+                            if (otherReedLog != null){
+                                sendBle(createReedData(arrayListByteToByteArray(filterBetween(myReedLog,otherReedLog,filterSelecter))));
+                            } else {
                                 sendBle(data);
+                            }
+
+
+                            Byte[] byteList = BLEService.bleDataByte(data);
                             shareReedV2 sr = new shareReedV2();
                             sr.execute(byteList);
                         }
@@ -321,7 +331,8 @@ public class rxNavigatorService extends Service {
             switch (flag){
                 case 1: // ReedSwitch
                     byte[] dataArr = intent.getByteArrayExtra("arrData");
-                    sendBle(createReedData(dataArr));
+                    otherReedLog = dataToSwitchLog(BLEService.bleData(dataArr));
+                    sendBle(createReedData(arrayListByteToByteArray(filterBetween(dataToSwitchLog(dataArr),dataToSwitchLog(dataArr),filterSelecter))));
                     break;
             }
             String strData = intent.getStringExtra("data");
@@ -682,9 +693,11 @@ public class rxNavigatorService extends Service {
     public class registerUserId extends AsyncTask<Double, Void,Integer>{
         @Override
         protected Integer doInBackground(Double... floats) {
-            HttpsURLConnection con = null;
+//            HttpsURLConnection con = null;
+            HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/register?lon=")
+//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/register?lon=")
+            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/register?lon=")
                     .append(floats[0].toString())
                     .append("&lat=")
                     .append(floats[1].toString())
@@ -700,7 +713,8 @@ public class rxNavigatorService extends Service {
 
             try{
                 URL url = new URL(new String(urlBuilder));
-                con = (HttpsURLConnection) url.openConnection();
+//                con = (HttpsURLConnection) url.openConnection();
+                con = (HttpURLConnection) url.openConnection();
                 con.setRequestMethod(method);
                 con.setInstanceFollowRedirects(false);
                 con.setDoInput(true);
@@ -930,9 +944,10 @@ public class rxNavigatorService extends Service {
     public class makeGroupV2 extends AsyncTask<Double, Void,Integer>{
         @Override
         protected Integer doInBackground(Double... doubles) {
-            HttpsURLConnection con = null;
+            HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
+//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
+            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/refPoint/")
                     .append(String.valueOf(userId))
                     .append("?lon=")
                     .append(doubles[0].toString())
@@ -949,7 +964,7 @@ public class rxNavigatorService extends Service {
 
             try{
                 URL url = new URL(new String(urlBuilder));
-                con = (HttpsURLConnection) url.openConnection();
+                con = (HttpURLConnection) url.openConnection();
                 con.setRequestMethod(method);
                 con.setInstanceFollowRedirects(false);
                 con.setDoInput(true);
@@ -1002,9 +1017,10 @@ public class rxNavigatorService extends Service {
     public class updateRefPointV2 extends AsyncTask<Double, Void,Integer>{
         @Override
         protected Integer doInBackground(Double... doubles) {
-            HttpsURLConnection con = null;
+            HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
+//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
+            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/refPoint/")
                     .append(String.valueOf(groupId))
                     .append("/")
                     .append(String.valueOf(userId))
@@ -1023,7 +1039,7 @@ public class rxNavigatorService extends Service {
 
             try{
                 URL url = new URL(new String(urlBuilder));
-                con = (HttpsURLConnection) url.openConnection();
+                con = (HttpURLConnection) url.openConnection();
                 con.setRequestMethod(method);
                 con.setInstanceFollowRedirects(false);
                 con.setDoInput(true);
@@ -1217,9 +1233,10 @@ public class rxNavigatorService extends Service {
     public class notifyMyFootstepV2 extends AsyncTask<Integer, Void,Integer>{
         @Override
         protected Integer doInBackground(Integer... integers) {
-            HttpsURLConnection con = null;
+            HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/notify/")
+//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/notify/")
+            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/notify/")
                     .append(String.valueOf(groupId)).append("/")
                     .append(String.valueOf(userId));
             Log.i(TAG,"URL: " + new String(urlBuilder));
@@ -1237,7 +1254,7 @@ public class rxNavigatorService extends Service {
 
             try{
                 URL url = new URL(new String(urlBuilder));
-                con = (HttpsURLConnection) url.openConnection();
+                con = (HttpURLConnection) url.openConnection();
                 con.setRequestMethod(method);
                 con.setInstanceFollowRedirects(false);
                 con.setDoInput(true);
@@ -1283,6 +1300,7 @@ public class rxNavigatorService extends Service {
             } catch (IOException e) {
                 e.printStackTrace();
             }
+            logAndSendMessage(MainApplication.TAG,sb.toString());
             return sb.toString();
         }
     }
@@ -1290,12 +1308,13 @@ public class rxNavigatorService extends Service {
     public class shareReedV2 extends AsyncTask<Byte, Void,Integer>{
         @Override
         protected Integer doInBackground(Byte... bytes) {
-            HttpsURLConnection con = null;
+            HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/shareReed/")
+//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/shareReed/")
+            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/shareReed/")
                     .append(String.valueOf(groupId)).append("/")
                     .append(String.valueOf(userId)).append("/")
-                    .append(Arrays.toString(bytes));
+                    .append(ByteArrayToString(bytes));
             Log.i(TAG,"URL: " + new String(urlBuilder));
             String method = "GET";
 
@@ -1305,7 +1324,7 @@ public class rxNavigatorService extends Service {
 
             try{
                 URL url = new URL(new String(urlBuilder));
-                con = (HttpsURLConnection) url.openConnection();
+                con = (HttpURLConnection) url.openConnection();
                 con.setRequestMethod(method);
                 con.setInstanceFollowRedirects(false);
                 con.setDoInput(true);
@@ -1358,7 +1377,7 @@ public class rxNavigatorService extends Service {
     public class notifyMyFootstep extends AsyncTask<Void, Void,Integer>{
         @Override
         protected Integer doInBackground(Void... voids) {
-            HttpsURLConnection con = null;
+            HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
             urlBuilder.append("https://fcm.googleapis.com/fcm/send");
 
@@ -1366,7 +1385,7 @@ public class rxNavigatorService extends Service {
             String method = "POST";
             try{
                 URL url = new URL(new String(urlBuilder));
-                con = (HttpsURLConnection) url.openConnection();
+                con = (HttpURLConnection) url.openConnection();
                 con.setRequestMethod(method);
                 con.setInstanceFollowRedirects(false);
                 con.setDoInput(true);
@@ -1711,6 +1730,9 @@ public class rxNavigatorService extends Service {
 
     //  リードスイッチ振動共有
 
+    ArrayList<Byte> myReedLog;
+    ArrayList<Byte> otherReedLog;
+
     //byte[]型のデータにリードスイッチ用フラグを追加する
     private byte[] createReedData(byte[] data){
         int len = data.length;
@@ -1741,6 +1763,10 @@ public class rxNavigatorService extends Service {
     static final int XOR_FILTER = 5;
     int filterSelecter = 0;
 
+//    フィルタ処理した配列を返す（arrayList1,arrayList2,method）
+//    arrayList1: 比較元
+//    arrayList2: 比較先（RAW_FILTERの返し値）
+//    method:     フィルタ
     private ArrayList<Byte> filterBetween(ArrayList<Byte> arrayList1, ArrayList<Byte> arrayList2, int method){
         int size1 = arrayList1.size();
         int size2 = arrayList2.size();
@@ -1763,6 +1789,8 @@ public class rxNavigatorService extends Service {
         ArrayList<Byte> filteredArray = new ArrayList<Byte>();
         for (int cnt = 0;cnt<length;cnt++){
             switch (method){
+                case RAW_FILTER:
+                    filteredArray.add(arrayList2.get(cnt));
                 case AND_FILTER:
                     filteredArray.add((byte) (arrayList1.get(cnt) & arrayList2.get(cnt)));
                     break;
@@ -1787,6 +1815,15 @@ public class rxNavigatorService extends Service {
             byteArray[i] = arrayList.get(i);
         }
         return byteArray;
+    }
+
+    private String ByteArrayToString(Byte[] data){
+        byte[] byteData = new byte[data.length];
+        for (int i=0;i<data.length;i++) {
+            byteData[i] = data[i];
+        }
+        logAndSendMessage(MainApplication.TAG,new String(byteData));
+        return new String(byteData);
     }
 
 

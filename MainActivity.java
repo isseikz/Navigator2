@@ -346,19 +346,22 @@ public class MainActivity extends AppCompatActivity {
             public void onCheckedChanged(RadioGroup radioGroup, int id) {
                 Message message = Message.obtain(null,rxNavigatorService.REED_FILTER,0,0);
                 Bundle bundle = new Bundle();
-                int filterSelecter = 0;
+                int filterSelector = 0;
                 switch (id){
                     case R.id.radio_and:
-                        filterSelecter=rxNavigatorService.AND_FILTER;
+                        filterSelector=rxNavigatorService.AND_FILTER;
                         break;
                     case R.id.radio_or:
-                        filterSelecter=rxNavigatorService.OR_FILTER;
+                        filterSelector=rxNavigatorService.OR_FILTER;
                         break;
                     case R.id.radio_xor:
-                        filterSelecter=rxNavigatorService.XOR_FILTER;
+                        filterSelector=rxNavigatorService.XOR_FILTER;
+                        break;
+                    case R.id.radio_raw:
+                        filterSelector=rxNavigatorService.RAW_FILTER;
                         break;
                 }
-                bundle.putInt("filter",filterSelecter);
+                bundle.putInt("filter",filterSelector);
                 message.setData(bundle);
                 try {
                     messenger.send(message);
