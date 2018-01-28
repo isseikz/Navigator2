@@ -29,6 +29,8 @@ import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.Switch;
 import android.widget.Toast;
 
@@ -84,13 +86,7 @@ public class MainActivity extends AppCompatActivity {
     static String TAG = "Navigator2";
     static int REQUEST_ENABLE_BT = 0x001;
     static int REQUEST_ENABLE_LOCATION = 0x002;
-    static final String UART_SERVICE  = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
-    static final String UART_WRITE    = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
-    static final String UART_READ     = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 
-    static final int FLAG_CURRENT_LOCATION = 0;
-    static final int FLAG_BEARING = 1;
-    static final int FLAG_LOCATION_BEARING = 2;
 //    GoogleApiClient googleApiClient;
     boolean SetRefPosition = false;
     Location currentLocation;
@@ -105,6 +101,7 @@ public class MainActivity extends AppCompatActivity {
     ListView logArea;
     public ArrayAdapter logListAdapter;
 
+//    UI
     EditText editTextId;
     Button btnGetLoc;
     Button btnGetShareId;
@@ -117,6 +114,7 @@ public class MainActivity extends AppCompatActivity {
     Switch roadDirectoinNeededSwitch;
     Button btnSendFootStep;
     Button btnSendBear;
+    RadioGroup radioGroupReed;
 
     JSONObject jsonObject;
     int id=0;
@@ -338,6 +336,35 @@ public class MainActivity extends AppCompatActivity {
                 Intent intent = new Intent(MainActivity.this,rxNavigatorService.class);
                 intent.putExtra("Flag",F_SEND_COMPASS);
                 startService(intent);
+            }
+        });
+
+        // TODO サービス開始時に設定してる変数を全て送る必要がありそう
+        radioGroupReed = (RadioGroup) findViewById(R.id.radioGroup);
+        radioGroupReed.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(RadioGroup radioGroup, int id) {
+                Message message = Message.obtain(null,rxNavigatorService.REED_FILTER,0,0);
+                Bundle bundle = new Bundle();
+                int filterSelecter = 0;
+                switch (id){
+                    case R.id.radio_and:
+                        filterSelecter=rxNavigatorService.AND_FILTER;
+                        break;
+                    case R.id.radio_or:
+                        filterSelecter=rxNavigatorService.OR_FILTER;
+                        break;
+                    case R.id.radio_xor:
+                        filterSelecter=rxNavigatorService.XOR_FILTER;
+                        break;
+                }
+                bundle.putInt("filter",filterSelecter);
+                message.setData(bundle);
+                try {
+                    messenger.send(message);
+                } catch (RemoteException e) {
+                    e.printStackTrace();
+                }
             }
         });
     }

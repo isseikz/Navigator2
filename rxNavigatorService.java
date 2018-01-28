@@ -84,6 +84,7 @@ public class rxNavigatorService extends Service {
     static final int MESSAGE = 1;
     static final int ADD_LOG = 2;
     static final int BLE_DATA = 3;
+    static final int REED_FILTER = 4;
     Messenger messenger = new Messenger(new IncomingHandler());
     Messenger bleServiceMessenger;
     Messenger replyMessenger;
@@ -207,6 +208,11 @@ public class rxNavigatorService extends Service {
                             sr.execute(byteList);
                         }
                     }
+                    break;
+                case REED_FILTER:
+                    filterSelecter = msg.getData().getInt("filter");
+                    logAndSendMessage(MainApplication.TAG,"Reed-Filter is changed: "+String.valueOf(filterSelecter));
+                    break;
             }
         }
     }
@@ -1733,6 +1739,7 @@ public class rxNavigatorService extends Service {
     static final int NOR_FILTER = 3;
     static final int NAND_FILTER = 4;
     static final int XOR_FILTER = 5;
+    int filterSelecter = 0;
 
     private ArrayList<Byte> filterBetween(ArrayList<Byte> arrayList1, ArrayList<Byte> arrayList2, int method){
         int size1 = arrayList1.size();
