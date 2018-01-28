@@ -264,4 +264,22 @@ public class BLEService extends Service {
             connectBleSubscription(rxBleDevice,true);
         }
     }
+
+    public static byte[] bleData(byte[] data){
+        int len = data.length;
+        byte[] byteArray = new byte[len-1];
+        for (int i =0;i<len-1;i++){
+            byteArray[i] = data[i+1];
+        }
+        return byteArray;
+    }
+
+    public static Byte[] bleDataByte(byte[] data){
+        int len = data.length;
+        Byte[] byteArray = new Byte[len - 1];
+        for (int i =0;i<len-1;i++){
+            byteArray[i] = data[i+1];
+        }
+        return byteArray;
+    }
 }

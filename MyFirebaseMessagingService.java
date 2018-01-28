@@ -44,6 +44,10 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         intent.putExtra("data",remoteMessage.getData().get("flag"));
 //        intent.putExtra("user_id",remoteMessage.getData().get("user_id") != null ? remoteMessage.getData().get("user_id") : "4444" );
 
+        if (remoteMessage.getData().get("flag").equals("0001")){
+            intent.putExtra("arrData",remoteMessage.getData().get("arrData"));
+        }
+
         localBroadcastManager.sendBroadcast(intent);
     }
 

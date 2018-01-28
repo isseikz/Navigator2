@@ -56,6 +56,7 @@ import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -196,9 +197,17 @@ public class rxNavigatorService extends Service {
                     byte[] data = msg.getData().getByteArray("data");
                     if (data != null){
                         logAndSendMessage(MainApplication.TAG,new String(data));
+                        byte flag = data[0];
+                        logAndSendMessage(MainApplication.TAG,Integer.toHexString(data[0]));
+                        switch (flag){
+                            case (byte) 0x49:  // "I" (リードスイッチ読取)
+                            Byte[] byteList = BLEService.bleDataByte(data);
+                                sendBle(data);
+                            shareReedV2 sr = new shareReedV2();
+                            sr.execute(byteList);
+                        }
                     }
             }
-
         }
     }
 
@@ -302,6 +311,13 @@ public class rxNavigatorService extends Service {
 
             Log.i(TAG, "Value:" + String.valueOf(intent.getStringExtra("data")));
 
+            int flag = intent.getIntExtra("flag",0);
+            switch (flag){
+                case 1: // ReedSwitch
+                    byte[] dataArr = intent.getByteArrayExtra("arrData");
+                    sendBle(createReedData(dataArr));
+                    break;
+            }
             String strData = intent.getStringExtra("data");
 
 //            Log.i(TAG,"user_id: " + intent.getStringExtra("user_id"));
@@ -1265,6 +1281,74 @@ public class rxNavigatorService extends Service {
         }
     }
 
+    public class shareReedV2 extends AsyncTask<Byte, Void,Integer>{
+        @Override
+        protected Integer doInBackground(Byte... bytes) {
+            HttpsURLConnection con = null;
+            StringBuilder urlBuilder = new StringBuilder();
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/shareReed/")
+                    .append(String.valueOf(groupId)).append("/")
+                    .append(String.valueOf(userId)).append("/")
+                    .append(Arrays.toString(bytes));
+            Log.i(TAG,"URL: " + new String(urlBuilder));
+            String method = "GET";
+
+            urlBuilder.append("?flag=0001");
+
+            logAndSendMessage(TAG,"URL: " +urlBuilder.toString());
+
+            try{
+                URL url = new URL(new String(urlBuilder));
+                con = (HttpsURLConnection) url.openConnection();
+                con.setRequestMethod(method);
+                con.setInstanceFollowRedirects(false);
+                con.setDoInput(true);
+                con.setDoOutput(false);
+
+                con.connect();
+
+                InputStream in = con.getInputStream();
+
+                JSONObject jsonObject = new JSONObject(readInputStream(in));
+                groupId = jsonObject.getInt("group_id");
+
+                Message message = Message.obtain();
+                Bundle bundle = new Bundle();
+                bundle.putInt("group_id",groupId);
+                message.setData(bundle);
+                replyMessenger.send(message);
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (ProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        public String readInputStream(InputStream in) throws IOException {
+            StringBuffer sb = new StringBuffer();
+            String st = "";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            while ((st = br.readLine()) != null){
+                logAndSendMessage(TAG,st);
+                sb.append(st);
+            }
+            try {
+                in.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return sb.toString();
+        }
+    }
+
     public class notifyMyFootstep extends AsyncTask<Void, Void,Integer>{
         @Override
         protected Integer doInBackground(Void... voids) {
@@ -1621,6 +1705,15 @@ public class rxNavigatorService extends Service {
 
     //  リードスイッチ振動共有
 
+    //byte[]型のデータにリードスイッチ用フラグを追加する
+    private byte[] createReedData(byte[] data){
+        int len = data.length;
+        byte[] returnData = new byte[len+1];
+        returnData[0] = Byte.parseByte("I");
+        System.arraycopy(data, 0, returnData, 1, len);
+        return returnData;
+    }
+
     // byte[]型のリードスイッチデータを時系列データに変換する
     private ArrayList<Byte> dataToSwitchLog(byte[] dataArr){
         ArrayList<Byte> byteArrayList = new ArrayList<>();
@@ -1634,11 +1727,12 @@ public class rxNavigatorService extends Service {
     }
 
     // 2つの時系列データをフィルタ処理する
-    static final int AND_METHOD = 1;
-    static final int OR_METHOD = 2;
-    static final int NOR_METHOD = 3;
-    static final int NAND_METHOD = 4;
-    static final int XOR_METHOD = 5;
+    static final int RAW_FILTER = 0;
+    static final int AND_FILTER = 1;
+    static final int OR_FILTER = 2;
+    static final int NOR_FILTER = 3;
+    static final int NAND_FILTER = 4;
+    static final int XOR_FILTER = 5;
 
     private ArrayList<Byte> filterBetween(ArrayList<Byte> arrayList1, ArrayList<Byte> arrayList2, int method){
         int size1 = arrayList1.size();
@@ -1662,13 +1756,13 @@ public class rxNavigatorService extends Service {
         ArrayList<Byte> filteredArray = new ArrayList<Byte>();
         for (int cnt = 0;cnt<length;cnt++){
             switch (method){
-                case AND_METHOD:
+                case AND_FILTER:
                     filteredArray.add((byte) (arrayList1.get(cnt) & arrayList2.get(cnt)));
                     break;
-                case OR_METHOD:
+                case OR_FILTER:
                     filteredArray.add((byte) (arrayList1.get(cnt) | arrayList2.get(cnt)));
                     break;
-                case XOR_METHOD:
+                case XOR_FILTER:
                     filteredArray.add((byte) (arrayList1.get(cnt) ^ arrayList2.get(cnt)));
                     break;
                 default:
