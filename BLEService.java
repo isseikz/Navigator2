@@ -220,6 +220,7 @@ public class BLEService extends Service {
         Message message = Message.obtain(null,rxNavigatorService.BLE_DATA,0,0);
         Bundle bundle = new Bundle();
         bundle.putByteArray("data",data);
+        Log.i(MainApplication.TAG,rxNavigatorService.bytesToHex(data));
         message.setData(bundle);
         try {
             replyMessenger.send(message);

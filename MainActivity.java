@@ -115,6 +115,7 @@ public class MainActivity extends AppCompatActivity {
     Button btnSendFootStep;
     Button btnSendBear;
     RadioGroup radioGroupReed;
+    Button btnTestSignal;
 
     JSONObject jsonObject;
     int id=0;
@@ -264,6 +265,7 @@ public class MainActivity extends AppCompatActivity {
                 }else{
                     if (isBound){
                         unbindService(serviceConnection);
+                        stopBleService();
                     }
                     stopService(intent);
                     isBound = false;
@@ -370,6 +372,19 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+
+        btnTestSignal = (Button) findViewById(R.id.btnTestSignal);
+        btnTestSignal.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Message message = Message.obtain(null, rxNavigatorService.REED_TEST,0,0);
+                try {
+                    messenger.send(message);
+                } catch (RemoteException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
     }
 
     @Override
@@ -439,6 +454,11 @@ public class MainActivity extends AppCompatActivity {
             unbindService(serviceConnection);
             isBound = false;
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
     }
 
     public class notifyMyFootstepV2 extends AsyncTask<Double, Void,Integer>{
@@ -681,5 +701,10 @@ public class MainActivity extends AppCompatActivity {
             }
             return sb.toString();
         }
+    }
+
+    public void stopBleService(){
+        Intent intent = new Intent(getApplicationContext(),BLEService.class);
+        stopService(intent);
     }
 }

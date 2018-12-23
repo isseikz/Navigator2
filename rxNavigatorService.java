@@ -39,6 +39,7 @@ import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 import com.google.firebase.iid.FirebaseInstanceId;
+import com.polidea.rxandroidble.internal.scan.InternalToExternalScanResultConverter;
 
 
 import org.json.JSONException;
@@ -86,6 +87,7 @@ public class rxNavigatorService extends Service {
     static final int ADD_LOG = 2;
     static final int BLE_DATA = 3;
     static final int REED_FILTER = 4;
+    static final int REED_TEST = 5;
     Messenger messenger = new Messenger(new IncomingHandler());
     Messenger bleServiceMessenger;
     Messenger replyMessenger;
@@ -198,20 +200,35 @@ public class rxNavigatorService extends Service {
                 case BLE_DATA:
                     byte[] data = msg.getData().getByteArray("data");
                     if (data != null){
-                        logAndSendMessage(MainApplication.TAG,new String(data));
+                        logAndSendMessage(MainApplication.TAG,"Received in NavigatorService: "+new String(data));
                         byte flag = data[0];
-                        logAndSendMessage(MainApplication.TAG,Integer.toHexString(data[0]));
+                        logAndSendMessage(MainApplication.TAG,bytesToHex(data));
                         switch (flag){
                             case (byte) 0x49:  // "I" (リードスイッチ読取)
                             myReedLog = dataToSwitchLog(BLEService.bleData(data));
 
+                            int len = data.length;
+                            for (int i=0;i<len;i++){
+                                logAndSendMessage(MainApplication.TAG,Integer.toHexString(data[i]));
+                            }
+                            byte[] dataSent = new byte[len-2];
+
+                            logAndSendMessage(MainApplication.TAG,"data sent:" + new String(dataSent));
+
+//                            for(int i = 0;i<len -2;i++){
+//                                dataSent[i] = data[i];
+//                            }
+//                                for (int i=0;i<len-2;i++){
+//                                    logAndSendMessage(MainApplication.TAG,Integer.toHexString(dataSent[i]));
+//                                }
+//                                sendBle(data);
+
 //                            フィルタ処理したデータを送信する
                             if (otherReedLog != null){
-                                sendBle(createReedData(arrayListByteToByteArray(filterBetween(myReedLog,otherReedLog,filterSelecter))));
+//                                sendBle(createReedData(arrayListByteToByteArray(filterBetween(myReedLog,otherReedLog,filterSelecter))));
                             } else {
-                                sendBle(data);
+//                                sendBle(data);
                             }
-
 
                             Byte[] byteList = BLEService.bleDataByte(data);
                             shareReedV2 sr = new shareReedV2();
@@ -222,6 +239,20 @@ public class rxNavigatorService extends Service {
                 case REED_FILTER:
                     filterSelecter = msg.getData().getInt("filter");
                     logAndSendMessage(MainApplication.TAG,"Reed-Filter is changed: "+String.valueOf(filterSelecter));
+                    break;
+                case REED_TEST:
+                    logAndSendMessage(MainApplication.TAG,"REED DATA TEST");
+                    byte[] byteI = "I".getBytes();
+                    byte[] buffer = new byte[]{
+                            byteI[0],
+                            (byte) (0b11000000 | 0x0A),
+                            (byte) (0b00000000 | 0x0A),
+                            (byte) (0b00110000 | 0x0A),
+                            (byte) (0b00000000 | 0x0A),
+                            (byte) (0b10100000 | 0x0A),
+                            (byte) (0b01010000 | 0x0A),
+                    };
+                    sendBle(buffer);
                     break;
             }
         }
@@ -326,29 +357,34 @@ public class rxNavigatorService extends Service {
             Log.i(TAG, "RX Push Received!");
 
             Log.i(TAG, "Value:" + String.valueOf(intent.getStringExtra("data")));
+            try{
+                int flag = Integer.parseInt(intent.getStringExtra("data"));
 
-            int flag = intent.getIntExtra("flag",0);
-            switch (flag){
-                case 1: // ReedSwitch
-                    byte[] dataArr = intent.getByteArrayExtra("arrData");
-                    otherReedLog = dataToSwitchLog(BLEService.bleData(dataArr));
-                    sendBle(createReedData(arrayListByteToByteArray(filterBetween(dataToSwitchLog(dataArr),dataToSwitchLog(dataArr),filterSelecter))));
-                    break;
-            }
-            String strData = intent.getStringExtra("data");
+
+
+                logAndSendMessage(MainApplication.TAG,"Push: " + String.valueOf(flag));
+
 
 //            Log.i(TAG,"user_id: " + intent.getStringExtra("user_id"));
 
+//            if (strData != null){
+//                byte[] buffer = new byte[5];
+//                ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+//                byteBuffer.put((byte) FLAG_WALKSTEP)
+//                        .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(0))) & 0xff))
+//                        .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(1))) & 0xff))
+//                        .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(2))) & 0xff))
+//                        .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(3))) & 0xff));
+//
+//                sendBle(buffer);
+//            }
 //            TODO bluetooth
-            byte[] buffer = new byte[5];
-            ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-            byteBuffer.put((byte) FLAG_WALKSTEP)
-                    .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(0))) & 0xff))
-                    .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(1))) & 0xff))
-                    .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(2))) & 0xff))
-                    .put((byte) ((byte) Integer.parseInt(String.valueOf(strData.charAt(3))) & 0xff));
+            }catch(NumberFormatException e){
+                logAndSendMessage(MainApplication.TAG, "NFE");
+            };
 
-            sendBle(buffer);
+
+
         }
     };
 
@@ -447,6 +483,12 @@ public class rxNavigatorService extends Service {
             sensor = null;
 
         }
+
+        currentLocation = new Location("dummyprovider");
+        currentLocation.setLongitude(0);
+        currentLocation.setLatitude(0);
+        currentLocation.setBearing(0);
+        currentLocation.setSpeed(0);
     }
 
     private class GoogleApiCallbacks implements GoogleApiClient.ConnectionCallbacks {
@@ -609,7 +651,7 @@ public class rxNavigatorService extends Service {
                             }
 
                             if (running){
-                                logAndSendMessage(TAG,"Reference received");
+                                logAndSendMessage(TAG,"Reference receiving...");
                                 new Handler().postDelayed(this,STATUS_UPDATE_PERIOD);
                             }
                         }
@@ -680,6 +722,7 @@ public class rxNavigatorService extends Service {
             mainHandler.removeCallbacksAndMessages(null);
         }
         if (googleApiClient.isConnected()){
+            Log.i(MainApplication.TAG,"google api client disconnecting...");
             googleApiClient.disconnect();
         }
         stopForeground(true);
@@ -946,8 +989,8 @@ public class rxNavigatorService extends Service {
         protected Integer doInBackground(Double... doubles) {
             HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
-            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/refPoint/")
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
+//            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/refPoint/")
                     .append(String.valueOf(userId))
                     .append("?lon=")
                     .append(doubles[0].toString())
@@ -1019,8 +1062,8 @@ public class rxNavigatorService extends Service {
         protected Integer doInBackground(Double... doubles) {
             HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
-            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/refPoint/")
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/refPoint/")
+//            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/refPoint/")
                     .append(String.valueOf(groupId))
                     .append("/")
                     .append(String.valueOf(userId))
@@ -1235,8 +1278,8 @@ public class rxNavigatorService extends Service {
         protected Integer doInBackground(Integer... integers) {
             HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/notify/")
-            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/notify/")
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/notify/")
+//            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/notify/")
                     .append(String.valueOf(groupId)).append("/")
                     .append(String.valueOf(userId));
             Log.i(TAG,"URL: " + new String(urlBuilder));
@@ -1308,13 +1351,19 @@ public class rxNavigatorService extends Service {
     public class shareReedV2 extends AsyncTask<Byte, Void,Integer>{
         @Override
         protected Integer doInBackground(Byte... bytes) {
+            byte[] bytebuffer = new byte[bytes.length];
+            for (int i=0;i<bytes.length;i++){
+                bytebuffer[i] = bytes[i];
+            }
+
             HttpURLConnection con = null;
             StringBuilder urlBuilder = new StringBuilder();
-//            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/shareReed/")
-            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/shareReed/")
+            urlBuilder.append("https://peaceful-caverns-31016.herokuapp.com/api/v2/application/shareReed/")
+//            urlBuilder.append("http://163.58.215.86:3000/api/v2/application/shareReed/")
                     .append(String.valueOf(groupId)).append("/")
                     .append(String.valueOf(userId)).append("/")
-                    .append(ByteArrayToString(bytes));
+//                    .append(ByteArrayToString(bytes));
+                    .append(bytesToHex(bytebuffer));
             Log.i(TAG,"URL: " + new String(urlBuilder));
             String method = "GET";
 
@@ -1653,6 +1702,8 @@ public class rxNavigatorService extends Service {
 
     private void stopBleSubscription(){
         unbindService(bleServiceConnection);
+        Intent intent = new Intent(this,BLEService.class);
+        stopService(intent);
     }
 
 
@@ -1737,7 +1788,7 @@ public class rxNavigatorService extends Service {
     private byte[] createReedData(byte[] data){
         int len = data.length;
         byte[] returnData = new byte[len+1];
-        returnData[0] = Byte.parseByte("I");
+        returnData[0] = 0x49; // "I"
         System.arraycopy(data, 0, returnData, 1, len);
         return returnData;
     }
@@ -1822,10 +1873,31 @@ public class rxNavigatorService extends Service {
         for (int i=0;i<data.length;i++) {
             byteData[i] = data[i];
         }
-        logAndSendMessage(MainApplication.TAG,new String(byteData));
+        logAndSendMessage(MainApplication.TAG,"ByteArray"+bytesToHex(byteData));
+        logAndSendMessage(MainApplication.TAG,"String"+new String(byteData));
         return new String(byteData);
     }
 
+    private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
+    public static String bytesToHex(byte[] bytes) {
+        char[] hexChars = new char[bytes.length * 2];
+        for ( int j = 0; j < bytes.length; j++ ) {
+            int v = bytes[j] & 0xFF;
+            hexChars[j * 2] = hexArray[v >>> 4];
+            hexChars[j * 2 + 1] = hexArray[v & 0x0F];
+        }
+        return new String(hexChars);
+    }
+
+    public static byte[] hexStringToByteArray(String s) {
+        int len = s.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                    + Character.digit(s.charAt(i+1), 16));
+        }
+        return data;
+    }
 
 
     // リードスイッチ振動共有おわり

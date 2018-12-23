@@ -3,6 +3,7 @@ package com.example.issei.navigator2;
 import android.app.Application;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
+import android.content.Intent;
 import android.util.Log;
 
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -32,5 +33,16 @@ public class MainApplication extends Application{
         Log.d(TAG,"MainApplication/onCreate");
 //        rxBleClient = RxBleClient.create(this);
 //        RxBleClient.setLogLevel(RxBleLog.DEBUG);
+    }
+
+    @Override
+    public void onTerminate() {
+        stopBleService();
+        super.onTerminate();
+    }
+
+    public void stopBleService(){
+        Intent intent = new Intent(getApplicationContext(),BLEService.class);
+        stopService(intent);
     }
 }
